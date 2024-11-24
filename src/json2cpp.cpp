@@ -73,7 +73,7 @@ std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::ve
   } else if (value.is_number_unsigned()) {
     return fmt::format("std::uint64_t{{{}}}", value.get<std::uint64_t>());
   } else if (value.is_number() && !value.is_number_unsigned()) {
-    return fmt::format("std::int64_t{{{}}}", value.get<std::uint64_t>());
+    return fmt::format("std::int64_t{{{}}}", value.get<std::int64_t>());
   } else if (value.is_boolean()) {
     return fmt::format("bool{{{}}}", value.get<bool>());
   } else if (value.is_string()) {
