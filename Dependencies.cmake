@@ -9,7 +9,7 @@ function(json2cpp_setup_dependencies)
   # already been provided to us by a parent project
 
   if(NOT TARGET fmtlib::fmtlib)
-    cpmaddpackage("gh:fmtlib/fmt#9.1.0")
+    cpmaddpackage("gh:fmtlib/fmt#11.0.2")
   endif()
 
   if(NOT TARGET spdlog::spdlog)
@@ -17,7 +17,7 @@ function(json2cpp_setup_dependencies)
       NAME
       spdlog
       VERSION
-      1.11.0
+      1.15.0
       GITHUB_REPOSITORY
       "gabime/spdlog"
       OPTIONS
@@ -25,23 +25,23 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET Catch2::Catch2WithMain)
-    cpmaddpackage("gh:catchorg/Catch2@3.3.2")
+    cpmaddpackage("gh:catchorg/Catch2@3.7.1")
   endif()
 
   if(NOT TARGET CLI11::CLI11)
-    cpmaddpackage("gh:CLIUtils/CLI11@2.3.2")
+    cpmaddpackage("gh:CLIUtils/CLI11@2.4.2")
   endif()
 
   if(NOT TARGET ftxui::screen)
-    cpmaddpackage("gh:ArthurSonzogni/FTXUI#e23dbc7473654024852ede60e2121276c5aab660")
+    cpmaddpackage("gh:ArthurSonzogni/FTXUI#ad0392ec395450da8f9049e4abbe258f34f0f59c")
   endif()
 
   if(NOT TARGET nlohmann_json::nlohmann_json)
-    cpmaddpackage("gh:nlohmann/json@3.11.2")
+    cpmaddpackage("gh:nlohmann/json@3.11.3")
   endif()
 
   if(NOT TARGET ValiJSON::valijson)
-    cpmaddpackage("gh:tristanpenman/valijson@1.0")
+    cpmaddpackage("gh:tristanpenman/valijson@1.0.3")
   endif()
 
 
