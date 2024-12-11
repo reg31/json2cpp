@@ -30,7 +30,7 @@ std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::ve
 {
   const auto current_object_number = obj_count++;
 
-  const auto json_string = [](const auto &str) { return fmt::format("R\"string({})string\"", str); };
+  const auto json_string = [](const auto &str) { return fmt::format("uR\"string({})string\"", str); };
 
   if (value.is_object()) {
     std::vector<std::string> pairs;
@@ -114,12 +114,12 @@ compile_results compile(const std::string_view document_name, const nlohmann::js
   results.impl.push_back(fmt::format(R"(
 namespace compiled_json::{}::impl {{
 
-using json = json2cpp::basic_json<char>;
-using data_t=json2cpp::data_variant<char>;
-using string_view=std::basic_string_view<char>;
-using array_t=json2cpp::basic_array_t<char>;
-using object_t=json2cpp::basic_object_t<char>;
-using value_pair_t=json2cpp::basic_value_pair_t<char>;
+using json = json2cpp::basic_json<char16_t>;
+using data_t=json2cpp::data_variant<char16_t>;
+using string_view=std::basic_string_view<char16_t>;
+using array_t=json2cpp::basic_array_t<char16_t>;
+using object_t=json2cpp::basic_object_t<char16_t>;
+using value_pair_t=json2cpp::basic_value_pair_t<char16_t>;
 
 )",
     document_name));
