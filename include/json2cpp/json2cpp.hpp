@@ -498,10 +498,10 @@ template<typename CharType> struct basic_json
   std::size_t size_{ basic_json::size(*this) };
 };
 
-using json = basic_json<char>;
-using object_t = basic_object_t<char>;
-using value_pair_t = basic_value_pair_t<char>;
-using array_t = basic_array_t<char>;
+using json = basic_json<char16_t>;
+using object_t = basic_object_t<char16_t>;
+using value_pair_t = basic_value_pair_t<char16_t>;
+using array_t = basic_array_t<char16_t>;
 }// namespace json2cpp
 
 #endif
