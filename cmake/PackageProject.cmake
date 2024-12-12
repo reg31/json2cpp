@@ -177,7 +177,7 @@ function(json2cpp_package_project)
     "${_multiValueArgs};DEPENDENCIES;PRIVATE_DEPENDENCIES")
 
   # download ycm
-  FetchContent_Declare(_ycm URL https://github.com/robotology/ycm/archive/refs/tags/v0.13.0.zip)
+  FetchContent_Declare(_ycm URL https://github.com/robotology/ycm/archive/refs/tags/v0.18.0.zip)
   FetchContent_GetProperties(_ycm)
   if(NOT _ycm_POPULATED)
     FetchContent_Populate(_ycm)
