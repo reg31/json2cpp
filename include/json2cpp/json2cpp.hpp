@@ -112,17 +112,17 @@ template<typename CharType> struct data_variant
         std::basic_string_view<CharType> string_view_;
         std::nullptr_t null_;
 
-        constexpr explicit value_t() : empty_{} {}
-        constexpr explicit value_t(monostate) : value_t() {}
-        constexpr explicit value_t(bool b) : bool_{b} {}
-        constexpr explicit value_t(binary_t b) : binary_{b} {}
-        constexpr explicit value_t(basic_array_t<CharType> a) : array_{a} {}
-        constexpr explicit value_t(basic_object_t<CharType> o) : object_{o} {}
-        constexpr explicit value_t(std::int64_t i) : int64_t_{i} {}
-        constexpr explicit value_t(std::uint64_t i) : uint64_t_{i} {}
-        constexpr explicit value_t(double d) : double_{d} {}
-        constexpr explicit value_t(std::basic_string_view<CharType> s) : string_view_{s} {}
-        constexpr explicit value_t(std::nullptr_t) : null_{} {}
+        constexpr value_t() : empty_{} {}
+        constexpr value_t(monostate) : value_t() {}
+        constexpr value_t(bool b) : bool_{b} {}
+        constexpr value_t(binary_t b) : binary_{b} {}
+        constexpr value_t(basic_array_t<CharType> a) : array_{a} {}
+        constexpr value_t(basic_object_t<CharType> o) : object_{o} {}
+        constexpr value_t(std::int64_t i) : int64_t_{i} {}
+        constexpr value_t(std::uint64_t i) : uint64_t_{i} {}
+        constexpr value_t(double d) : double_{d} {}
+        constexpr value_t(std::basic_string_view<CharType> s) : string_view_{s} {}
+        constexpr value_t(std::nullptr_t) : null_{} {}
     };
 
   enum struct selected_type {
@@ -383,8 +383,8 @@ template<typename CharType> struct basic_json
         }
     }
 
-  constexpr static basic_json object() { return basic_json{ data_t{ basic_object_t<CharType>{} } }; }
-  constexpr static basic_json array() { return basic_json{ data_t{ basic_array_t<CharType>{} } }; }
+    constexpr static basic_json object() { return basic_json{ data_t{ basic_object_t<CharType>{} } }; }
+    constexpr static basic_json array() { return basic_json{ data_t{ basic_array_t<CharType>{} } }; }
 
 
   template<typename Type> [[nodiscard]] constexpr auto get() const
@@ -440,6 +440,8 @@ template<typename CharType> struct basic_json
       return is_null() || is_string() || is_boolean() || is_number() || is_binary();
   }
 
+  constexpr basic_json() = default;
+  constexpr basic_json(const data_t& d) : data{d} {}
 
   data_t data;
 };
