@@ -25,8 +25,9 @@ SOFTWARE.
 
 #include "json2cpp.hpp"
 #include <fstream>
+#include <algorithm>
 
-std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::vector<std::string> &lines)
+std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count, std::vector<std::string> &lines)
 {
   const auto current_object_number = obj_count++;
 
@@ -35,7 +36,7 @@ std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::ve
   if (value.is_object()) {
     std::vector<std::string> pairs;
     for (auto itr = value.begin(); itr != value.end(); ++itr) {
-      pairs.push_back(
+      pairs.emplace_back(
         fmt::format("value_pair_t{{{}, {{{}}}}},", json_string(itr.key()), compile(*itr, obj_count, lines)));
     }
 
@@ -56,7 +57,7 @@ std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::ve
     });
 
 
-    lines.push_back(fmt::format(
+    lines.emplace_back(fmt::format(
       "inline constexpr std::array<json, {}> object_data_{} = {{{{", entries.size(), current_object_number));
 
     std::transform(entries.begin(), entries.end(), std::back_inserter(lines), [](const auto &entry) {
@@ -77,7 +78,7 @@ std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::ve
   } else if (value.is_boolean()) {
     return fmt::format("bool{{{}}}", value.get<bool>());
   } else if (value.is_string()) {
-    return fmt::format("string_view{{{}}}", json_string(value.get<std::string>()));
+	return fmt::format("string_view{{{}}}", json_string(value.get<std::string>()));
   } else if (value.is_null()) {
     return "std::nullptr_t{}";
   }
@@ -85,7 +86,7 @@ std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::ve
   return "unhandled";
 }
 
-compile_results compile(const std::string_view document_name, const nlohmann::json &json)
+compile_results compile(const std::string_view document_name, const nlohmann::ordered_json &json)
 {
 
   std::size_t obj_count{ 0 };
@@ -150,7 +151,7 @@ compile_results compile(const std::string_view document_name, const std::filesys
   spdlog::info("Loading file: '{}'", filename.string());
 
   std::ifstream input(filename);
-  nlohmann::json document;
+  nlohmann::ordered_json document;
   input >> document;
 
   spdlog::info("File loaded");
@@ -185,7 +186,7 @@ void write_compilation([[maybe_unused]] std::string_view document_name,
 }
 
 void compile_to(const std::string_view document_name,
-  const nlohmann::json &json,
+  const nlohmann::ordered_json &json,
   const std::filesystem::path &base_output)
 {
   write_compilation(document_name, compile(document_name, json), base_output);
