@@ -60,10 +60,7 @@ jobs:
           arch: x64
 
       - name: Configure CMake
-        run: |
-          cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF
-          if: ${{ matrix.os == 'macos-latest' }}
-          cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -D CMAKE_OSX_ARCHITECTURES="x86_64;arm64" -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF
+        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF
 
       - name: Build
         run: cmake --build ./build --config ${{matrix.build_type}}
