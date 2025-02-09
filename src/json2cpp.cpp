@@ -78,7 +78,7 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
   } else if (value.is_boolean()) {
     return fmt::format("bool{{{}}}", value.get<bool>());
   } else if (value.is_string()) {
-	return fmt::format("string_view{{{}}}", json_string(value.get<std::string>()));
+    return fmt::format("string_view{{{}}}", json_string(value.get<std::string>()));
   } else if (value.is_null()) {
     return "std::nullptr_t{}";
   }
