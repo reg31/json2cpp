@@ -11,7 +11,7 @@ on:
       - develop
 
 env:
-  CLANG_TIDY_VERSION: "15.0.2"
+  CLANG_TIDY_VERSION: "19.1.7"
   VERBOSE: 1
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
           cmake: true
           ninja: true
           vcpkg: false
-          ccache: true
+          ccache: false
           clangtidy: ${{ env.CLANG_TIDY_VERSION }}
           cppcheck: false
           gcovr: false
