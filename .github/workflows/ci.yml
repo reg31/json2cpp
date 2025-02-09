@@ -11,7 +11,6 @@ on:
       - develop
 
 env:
-  CLANG_TIDY_VERSION: "19.1.7"
   VERBOSE: 1
 
 jobs:
@@ -43,19 +42,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Cpp
-        uses: aminya/setup-cpp@v1
+      - name: Set up Clang (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build
+
+      - name: Set up Clang (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm ninja
+
+      - name: Set up Clang (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          compiler: ${{ matrix.compiler }}
-          vcvarsall: ${{ contains(matrix.os, 'windows' )}}
-          cmake: true
-          ninja: true
-          vcpkg: false
-          ccache: true
-          clangtidy: ${{ env.CLANG_TIDY_VERSION }}
-          cppcheck: false
-          gcovr: false
-          opencppcoverage: false
+          arch: x64
 
       - name: Configure CMake
         run: |
