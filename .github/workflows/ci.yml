@@ -30,7 +30,6 @@ jobs:
         package_generator:
           - TBZ2
           - ZIP
-          - DMG
         include:
           - os: macos-latest
             package_generator: DMG
@@ -86,11 +85,3 @@ jobs:
         with:
           files: |
             build/*-*${{ matrix.build_type }}*-*.*
-
-
-      - name: Publish to codecov
-        uses: codecov/codecov-action@v2
-        with:
-          flags: ${{ runner.os }}
-          name: ${{ runner.os }}-coverage
-          files: ./build/coverage.xml
