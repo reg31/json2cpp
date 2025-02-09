@@ -75,19 +75,26 @@ jobs:
           name: ${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ matrix.package_generator }}
           path: ./build/*.${{ matrix.package_generator == 'ZIP' && 'zip' || matrix.package_generator == 'TBZ2' && 'tar.bz2' || matrix.package_generator == 'DMG' && 'dmg' || '' }}
 
+      - name: Generate File List for Release
+        id: files
+        run: |
+          find ./build -type f -print0 | while IFS= read -r -d $'\0' file; do
+            echo "file=$file" >> $GITHUB_OUTPUT
+          done
+          
       - name: Publish Snapshot Release
         if: ${{ (github.ref == 'refs/heads/main') }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: "snapshot-${{ github.sha }}"
-          files: ./build/*.*
+          files: ${{ steps.files.outputs.file }}
           draft: true
           prerelease: true
-
+          
       - name: Publish Tagged Release
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v1
         with:
-          files: ./build/*.*
+          files: ${{ steps.files.outputs.file }}
           draft: false
           prerelease: false
