@@ -11,7 +11,7 @@ on:
       - develop
 
 env:
-  CLANG_TIDY_VERSION: "15.0.2"
+  CLANG_TIDY_VERSION: "19.1.7"
   VERBOSE: 1
 
 jobs:
@@ -29,13 +29,13 @@ jobs:
       # and your own projects needs
       matrix:
         os:
-          - ubuntu-20.04
-          - macos-10.15
-          - windows-2019
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
         compiler:
           # you can specify the version after `-` like "llvm-15.0.2".
-          - llvm-15.0.2
-          - gcc-11
+          - clang
+          - gcc
         generator:
           - "Ninja Multi-Config"
         build_type:
@@ -47,28 +47,23 @@ jobs:
         build_shared:
           - OFF
 
-        exclude:
-          # mingw is determined by this author to be too buggy to support
-          - os: windows-2019
-            compiler: gcc-11
-
         include:
           # Add appropriate variables for gcov version required. This will intentionally break
           # if you try to use a compiler that does not have gcov set
-          - compiler: gcc-11
+          - compiler: gcc
             gcov_executable: gcov
             enable_ipo: On
 
-          - compiler: llvm-15.0.2
+          - compiler: clang
             enable_ipo: Off
             gcov_executable: "llvm-cov gcov"
 
-          - os: macos-10.15
+          - os: macos-latest
             enable_ipo: Off
             enable_cppcheck: OFF
             enable_clang_tidy: OFF
 
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             enable_clang_tidy: On
             enable_cppcheck: On
 
@@ -79,8 +74,8 @@ jobs:
             package_generator: TBZ2
 
           # This exists solely to make sure a non-multiconfig build works
-          - os: ubuntu-20.04
-            compiler: gcc-11
+          - os: ubuntu-latest
+            compiler: gcc
             generator: "Unix Makefiles"
             build_type: Debug
             gcov_executable: gcov
@@ -91,7 +86,7 @@ jobs:
 
 
           # Windows msvc builds
-          - os: windows-2022
+          - os: windows-latest
             compiler: msvc
             generator: "Visual Studio 17 2022"
             build_type: Debug
@@ -101,7 +96,7 @@ jobs:
             enable_cppcheck: Off
 
 
-          - os: windows-2022
+          - os: windows-latest
             compiler: msvc
             generator: "Visual Studio 17 2022"
             build_type: Release
@@ -111,7 +106,7 @@ jobs:
             enable_cppcheck: Off
 
 
-          - os: windows-2022
+          - os: windows-latest
             compiler: msvc
             generator: "Visual Studio 17 2022"
             build_type: Debug
@@ -120,7 +115,7 @@ jobs:
             enable_cppcheck: Off
 
 
-          - os: windows-2022
+          - os: windows-latest
             compiler: msvc
             generator: "Visual Studio 17 2022"
             build_type: Release
