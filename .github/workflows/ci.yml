@@ -30,13 +30,6 @@ jobs:
         package_generator:
           - TBZ2
           - ZIP
-        include:
-          - os: macos-latest
-            package_generator: DMG
-          - os: ubuntu-latest
-            package_generator: TBZ2
-          - os: windows-latest
-            package_generator: ZIP
 
     steps:
       - uses: actions/checkout@v4
