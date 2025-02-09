@@ -61,18 +61,16 @@ jobs:
 
       - name: Configure CMake
         run: |
-          cmake -S . -B ./build -G Ninja  -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF
+          cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF
           if: ${{ matrix.os == 'macos-latest' }}
-          run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -D CMAKE_OSX_ARCHITECTURES="x86_64;arm64" -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF
+          cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -D CMAKE_OSX_ARCHITECTURES="x86_64;arm64" -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF
 
       - name: Build
-        run: |
-          cmake --build ./build --config ${{matrix.build_type}}
+        run: cmake --build ./build --config ${{matrix.build_type}}
 
       - name: CPack
         working-directory: ./build
-        run: |
-          cmake --build . --target package --config ${{matrix.build_type}}
+        run: cmake --build . --target package --config ${{matrix.build_type}}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -81,16 +79,18 @@ jobs:
           path: ./build/*.${{ matrix.package_generator == 'ZIP' && 'zip' || matrix.package_generator == 'TBZ2' && 'tar.bz2' || matrix.package_generator == 'DMG' && 'dmg' || '' }}
 
       - name: Publish Snapshot Release
-        uses: softprops/action-gh-release@v1
         if: ${{ (github.ref == 'refs/heads/main') }}
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: "snapshot-${{ github.sha }}"
-          files: |
-            ./build/*.*
+          files: ./build/*.*
+          draft: true
+          prerelease: true
 
       - name: Publish Tagged Release
-        uses: softprops/action-gh-release@v1
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v1
         with:
-          files: |
-            ./build/*.*
+          files: ./build/*.*
+          draft: false
+          prerelease: false
