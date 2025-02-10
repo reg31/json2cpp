@@ -259,10 +259,17 @@ template<typename CharType> struct basic_json {
     data_t data;
 };
 
+#ifdef JSON2CPP_USE_UTF16
 using json = basic_json<char16_t>;
 using object_t = basic_object_t<char16_t>;
 using value_pair_t = basic_value_pair_t<char16_t>;
 using array_t = basic_array_t<char16_t>;
+#else
+using json = basic_json<char>;
+using object_t = basic_object_t<char>;
+using value_pair_t = basic_value_pair_t<char>;
+using array_t = basic_array_t<char>;
+#endif
 
 } // namespace json2cpp
 
