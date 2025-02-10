@@ -1,3 +1,4 @@
+
 # json2cpp
 
 ![CI](https://github.com/lefticus/json2cpp/workflows/ci/badge.svg)
@@ -16,3 +17,33 @@ Features
 
 
 See the [test](test) folder for examples for building resources, using the valijson adapter, constexpr usage of resources, and firewalled usage of resources.
+
+This is a Fork of the amazing [json2cpp](https://github.com/lefticus/json2cpp) with the following changes:
+
+ - c++20 is the minimum required
+ - respect order of insered [object properties](https://json.nlohmann.me/api/ordered_json/)
+ - updated dependencies
+ - support using contains() on arrays
+ - fix [negative integer values not handled properly](https://github.com/lefticus/json2cpp/issues/18)
+ - utf16 support for compatibility with QT (QString/QstringView)*
+
+
+**Usage**
+
+Have youf json file in the same folder as the json2cpp executable and tpye the command:
+
+    json2cpp "outputCppClassName" "yourJsonFile.json" "outputFolderPath/baseFilename"
+
+I advise outputCppClassName and baseFilename to be the same for consistency, e.g.:
+
+    json2cpp "myClass" "myFile.json" "./myClass"
+
+This will generate 3 files you can include in your project:
+myClass.cpp
+myClass.hpp
+myClass_impl.cpp
+
+
+**utf16 support**
+
+Set #DEFINE **JSON2CPP_USE_UTF16** in your project to compile as utf16 string views (char16_t) instead of utf8, this allows implicit conversion to QStringView or even to build a QString.
