@@ -114,17 +114,24 @@ compile_results compile(const std::string_view document_name, const nlohmann::or
 
   results.impl.push_back(fmt::format(R"(
 namespace compiled_json::{}::impl {{
-
+    
+#ifdef JSON2CPP_USE_UTF16
 using json = json2cpp::basic_json<char16_t>;
 using data_t=json2cpp::data_variant<char16_t>;
 using string_view=std::basic_string_view<char16_t>;
 using array_t=json2cpp::basic_array_t<char16_t>;
 using object_t=json2cpp::basic_object_t<char16_t>;
 using value_pair_t=json2cpp::basic_value_pair_t<char16_t>;
-
+#else
+using json = json2cpp::basic_json<char>;
+using data_t=json2cpp::data_variant<char>;
+using string_view=std::basic_string_view<char>;
+using array_t=json2cpp::basic_array_t<char>;
+using object_t=json2cpp::basic_object_t<char>;
+using value_pair_t=json2cpp::basic_value_pair_t<char>;
+#endif
 )",
     document_name));
-
 
   const auto last_obj_name = compile(json, obj_count, results.impl);
 
