@@ -24,8 +24,8 @@ SOFTWARE.
 
 
 #include "json2cpp.hpp"
-#include <fstream>
 #include <algorithm>
+#include <fstream>
 
 std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count, std::vector<std::string> &lines)
 {
