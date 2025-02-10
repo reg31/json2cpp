@@ -17,7 +17,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Set the project name and language
 project(
   json2cpp
-  VERSION 0.0.1
+  VERSION 1.0
   DESCRIPTION ""
   HOMEPAGE_URL "%%myurl%%"
   LANGUAGES CXX C)
@@ -66,19 +66,6 @@ add_subdirectory(src)
 # Don't even look at tests if we're not top level
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
-endif()
-
-# Adding the tests:
-include(CTest)
-
-if(BUILD_TESTING)
-  add_subdirectory(test)
-endif()
-
-
-if(json2cpp_BUILD_FUZZ_TESTS)
-  message(AUTHOR_WARNING "Building Fuzz Tests, using fuzzing sanitizer https://www.llvm.org/docs/LibFuzzer.html")
-  add_subdirectory(fuzz_test)
 endif()
 
 # If MSVC is being used, and ASAN is enabled, we need to set the debugger environment
