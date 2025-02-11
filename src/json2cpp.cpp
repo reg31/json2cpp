@@ -109,7 +109,7 @@ namespace compiled_json::{}::impl {{
   typedef char16_t basicType;
    #define RAW_PREFIX(str) u"" str
   #else
-  typedef char8_t basicType;
+  typedef char basicType;
   #define RAW_PREFIX(str) str
   #endif
     
