@@ -30,7 +30,6 @@ SOFTWARE.
 std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count, std::vector<std::string> &lines)
 {
   const auto current_object_number = obj_count++;
-
   const auto json_string = [](const auto &str) { return fmt::format("RAW_PREFIX(R\"string({})string\")", str); };
 
   if (value.is_object()) {
@@ -64,9 +63,7 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
     });
 
     lines.emplace_back("}};");
-
     return fmt::format("array_t{{object_data_{}}}", current_object_number);
-
 
   } else if (value.is_number_float()) {
     return fmt::format("double{{{}}}", value.get<double>());
@@ -87,9 +84,7 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
 
 compile_results compile(const std::string_view document_name, const nlohmann::ordered_json &json)
 {
-
   std::size_t obj_count{ 0 };
-
   compile_results results;
 
   results.hpp.emplace_back(fmt::format("#ifndef {}_COMPILED_JSON", document_name));
@@ -138,9 +133,7 @@ namespace compiled_json::{}::impl {{
 
 #endif)", last_obj_name));
 
-
   spdlog::info("{} JSON objects processed.", obj_count);
-
   return results;
 }
 
@@ -161,10 +154,7 @@ void write_compilation([[maybe_unused]] std::string_view document_name,
   const compile_results &results,
   const std::filesystem::path &base_output)
 {
-
   const auto append_extension = [](std::filesystem::path name, std::string_view ext) { return name += ext; };
-
-
   const auto hpp_name = append_extension(base_output, ".hpp");
   const auto cpp_name = append_extension(base_output, ".cpp");
   const auto impl_name = append_extension(base_output, "_impl.hpp");
