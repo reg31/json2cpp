@@ -1,106 +1,188 @@
-cmake_minimum_required(VERSION 3.21)
+/*
+MIT License
 
-# This template attempts to be "fetch_content"-able
-# so that it works well with tools like CPM or other
-# manual dependency management
+Copyright (c) 2022 Jason Turner
 
-# Only set the cxx_standard if it is not set by someone else
-if (NOT DEFINED CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 20)
-endif()
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-# strongly encouraged to enable this globally to avoid conflicts between
-# -Wpedantic being enabled and -std=c++20 and -std=gnu++20 for example
-# when compiling with PCH enabled
-set(CMAKE_CXX_EXTENSIONS OFF)
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-# Set the project name and language
-project(
-  json2cpp
-  VERSION 1.0
-  DESCRIPTION ""
-  HOMEPAGE_URL "%%myurl%%"
-  LANGUAGES CXX C)
-
-include(cmake/PreventInSourceBuilds.cmake)
-include(ProjectOptions.cmake)
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 
 
-json2cpp_setup_options()
+#include "json2cpp.hpp"
+#include <algorithm>
+#include <fstream>
 
-json2cpp_global_options()
-include(Dependencies.cmake)
-json2cpp_setup_dependencies()
+std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count, std::vector<std::string> &lines)
+{
+  const auto current_object_number = obj_count++;
+  const auto json_string = [](const auto &str) { return fmt::format("RAW_PREFIX(R\"string({})string\")", str); };
 
-json2cpp_local_options()
+  if (value.is_object()) {
+    std::vector<std::string> pairs;
+    for (auto itr = value.begin(); itr != value.end(); ++itr) {
+      pairs.emplace_back(
+        fmt::format("value_pair_t{{{}, {{{}}}}},", json_string(itr.key()), compile(*itr, obj_count, lines)));
+    }
 
-# don't know if this should be set globally from here or not...
-set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    lines.emplace_back(fmt::format(
+      "inline constexpr std::array<value_pair_t, {}> object_data_{} = {{", pairs.size(), current_object_number));
 
-set(GIT_SHA
-    "Unknown"
-    CACHE STRING "SHA this build was generated from")
-string(
-  SUBSTRING "${GIT_SHA}"
-            0
-            8
-            GIT_SHORT_SHA)
+    std::transform(pairs.begin(), pairs.end(), std::back_inserter(lines), [](const auto &pair) {
+      return fmt::format("  {}", pair);
+    });
 
-target_compile_features(json2cpp_options INTERFACE cxx_std_${CMAKE_CXX_STANDARD})
+    lines.emplace_back("};");
 
-add_library(json2cpp_headers INTERFACE)
-target_include_directories(json2cpp_headers INTERFACE "${CMAKE_SOURCE_DIR}/include")
-add_library(json2cpp::json2cpp_headers ALIAS json2cpp_headers)
+    return fmt::format("object_t{{object_data_{}}}", current_object_number);
+  } else if (value.is_array()) {
+    std::vector<std::string> entries;
+    std::transform(value.begin(), value.end(), std::back_inserter(entries), [&](const auto &child) {
+      return fmt::format("{{{}}},", compile(child, obj_count, lines));
+    });
 
-add_library(json2cpp::json2cpp_options ALIAS json2cpp_options)
-add_library(json2cpp::json2cpp_warnings ALIAS json2cpp_warnings)
+    lines.emplace_back(fmt::format(
+      "inline constexpr std::array<json, {}> object_data_{} = {{{{", entries.size(), current_object_number));
 
-#add_library(json2cpp::json2cpp_options INTERFACE IMPORTED)
-#add_library(json2cpp::json2cpp_warnings INTERFACE IMPORTED)
+    std::transform(entries.begin(), entries.end(), std::back_inserter(lines), [](const auto &entry) {
+      return fmt::format("  {}", entry);
+    });
 
-# configure files based on CMake configuration options
+    lines.emplace_back("}};");
+    return fmt::format("array_t{{object_data_{}}}", current_object_number);
 
-# Adding the src:
-add_subdirectory(src)
+  } else if (value.is_number_float()) {
+    return fmt::format("double{{{}}}", value.get<double>());
+  } else if (value.is_number_unsigned()) {
+    return fmt::format("std::uint64_t{{{}}}", value.get<std::uint64_t>());
+  } else if (value.is_number() && !value.is_number_unsigned()) {
+    return fmt::format("std::int64_t{{{}}}", value.get<std::int64_t>());
+  } else if (value.is_boolean()) {
+    return fmt::format("bool{{{}}}", value.get<bool>());
+  } else if (value.is_string()) {
+    return fmt::format("string_view{{{}}}", json_string(value.get<std::string>()));
+  } else if (value.is_null()) {
+    return "std::nullptr_t{}";
+  }
 
-# Don't even look at tests if we're not top level
-if(NOT PROJECT_IS_TOP_LEVEL)
-  return()
-endif()
+  return "unhandled";
+}
 
-# If MSVC is being used, and ASAN is enabled, we need to set the debugger environment
-# so that it behaves well with MSVC's debugger, and we can run the target from visual studio
-if(MSVC)
-  get_all_installable_targets(all_targets)
-  message("all_targets=${all_targets}")
-  set_target_properties(${all_targets} PROPERTIES VS_DEBUGGER_ENVIRONMENT "PATH=$(VC_ExecutablePath_x64);%PATH%")
-endif()
+compile_results compile(const std::string_view document_name, const nlohmann::ordered_json &json)
+{
+  std::size_t obj_count{ 0 };
+  compile_results results;
 
-# set the startup project for the "play" button in MSVC
-set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT json2cpp)
+  results.hpp.emplace_back(fmt::format("#ifndef {}_COMPILED_JSON", document_name));
+  results.hpp.emplace_back(fmt::format("#define {}_COMPILED_JSON", document_name));
+  results.hpp.emplace_back("#include <json2cpp/json2cpp.hpp>");
 
-if(CMAKE_SKIP_INSTALL_RULES)
-  return()
-endif()
+  results.hpp.emplace_back(fmt::format("namespace compiled_json::{} {{", document_name));
+  results.hpp.emplace_back(fmt::format("  const json2cpp::json &get();", document_name));
+  results.hpp.emplace_back("}");
 
-include(cmake/PackageProject.cmake)
+  results.hpp.emplace_back("#endif");
 
-# Add other targets that you want installed here, by default we just package the one executable
-# we know we want to ship
-json2cpp_package_project(
-  TARGETS
-  json2cpp
-  json2cpp_options
-  json2cpp_warnings
-  # FIXME: this does not work! CK
-  # PRIVATE_DEPENDENCIES_CONFIGURED project_options project_warnings
-)
+  results.impl.emplace_back(fmt::format(
+    "// Just in case the user wants to use the entire document in a constexpr context, it can be included safely"));
+  results.impl.emplace_back(fmt::format("#ifndef {}_COMPILED_JSON_IMPL", document_name));
+  results.impl.emplace_back(fmt::format("#define {}_COMPILED_JSON_IMPL", document_name));
+  results.impl.emplace_back("#include <json2cpp/json2cpp.hpp>");
+  results.impl.emplace_back(fmt::format(R"(
+namespace compiled_json::{}::impl {{
+    
+  #ifdef JSON2CPP_USE_UTF16
+  #define RAW_PREFIX(str) u"" str
+  using json = json2cpp::basic_json<char16_t>;
+  using data_t=json2cpp::data_variant<char16_t>;
+  using string_view=std::basic_string_view<char16_t>;
+  using array_t=json2cpp::basic_array_t<char16_t>;
+  using object_t=json2cpp::basic_object_t<char16_t>;
+  using value_pair_t=json2cpp::basic_value_pair_t<char16_t>;
+  #else
+  #define RAW_PREFIX(str) str
+  using json = json2cpp::basic_json<char>;
+  using data_t=json2cpp::data_variant<char>;
+  using string_view=std::basic_string_view<char>;
+  using array_t=json2cpp::basic_array_t<char>;
+  using object_t=json2cpp::basic_object_t<char>;
+  using value_pair_t=json2cpp::basic_value_pair_t<char>;
+  #endif
+  )", document_name));
 
-# Experience shows that explicit package naming can help make it easier to sort
-# out potential ABI related issues before they start, while helping you
-# track a build to a specific GIT SHA
-set(CPACK_PACKAGE_FILE_NAME
-    "${CMAKE_PROJECT_NAME}-${CMAKE_PROJECT_VERSION}-${GIT_SHORT_SHA}-${CMAKE_SYSTEM_NAME}-${CMAKE_BUILD_TYPE}-${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
-)
+  const auto last_obj_name = compile(json, obj_count, results.impl);
 
-include(CPack)
+  results.impl.emplace_back(fmt::format(R"(
+  inline constexpr auto document = json{{{{{}}}}};
+
+}}
+
+#endif)", last_obj_name));
+
+  spdlog::info("{} JSON objects processed.", obj_count);
+  return results;
+}
+
+compile_results compile(const std::string_view document_name, const std::filesystem::path &filename)
+{
+  spdlog::info("Loading file: '{}'", filename.string());
+
+  std::ifstream input(filename);
+  nlohmann::ordered_json document;
+  input >> document;
+
+  spdlog::info("File loaded");
+
+  return compile(document_name, document);
+}
+
+void write_compilation([[maybe_unused]] std::string_view document_name,
+  const compile_results &results,
+  const std::filesystem::path &base_output)
+{
+  const auto append_extension = [](std::filesystem::path name, std::string_view ext) { return name += ext; };
+  const auto hpp_name = append_extension(base_output, ".hpp");
+  const auto cpp_name = append_extension(base_output, ".cpp");
+  const auto impl_name = append_extension(base_output, "_impl.hpp");
+
+  std::ofstream hpp(hpp_name);
+  for (const auto &line : results.hpp) { hpp << line << '\n'; }
+
+  std::ofstream impl(impl_name);
+  for (const auto &line : results.impl) { impl << line << '\n'; }
+
+  std::ofstream cpp(cpp_name);
+  cpp << fmt::format("#include \"{}\"\n", impl_name.filename().string());
+  cpp << fmt::format(
+    "namespace compiled_json::{} {{\nconst json2cpp::json &get() {{ return compiled_json::{}::impl::document; }}\n}}\n",
+    document_name,
+    document_name);
+}
+
+void compile_to(const std::string_view document_name,
+  const nlohmann::ordered_json &json,
+  const std::filesystem::path &base_output)
+{
+  write_compilation(document_name, compile(document_name, json), base_output);
+}
+
+void compile_to(const std::string_view document_name,
+  const std::filesystem::path &filename,
+  const std::filesystem::path &base_output)
+{
+  write_compilation(document_name, compile(document_name, filename), base_output);
+}
