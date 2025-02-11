@@ -18,7 +18,7 @@ Features
 
 See the [test](test) folder for examples for building resources, using the valijson adapter, constexpr usage of resources, and firewalled usage of resources.
 
-This is a Fork of the amazing [json2cpp](https://github.com/lefticus/json2cpp) with the following changes:
+This is a fork of the amazing [json2cpp](https://github.com/lefticus/json2cpp) with the following changes:
 
  - c++20 is the minimum required
  - respect order of insered [object properties](https://json.nlohmann.me/api/ordered_json/)
@@ -30,7 +30,7 @@ This is a Fork of the amazing [json2cpp](https://github.com/lefticus/json2cpp) w
 
 **Usage**
 
-Have youf json file in the same folder as the json2cpp executable and tpye the command:
+Have your json file in the same folder as the json2cpp executable and tpye the command:
 
     json2cpp "outputCppClassName" "yourJsonFile.json" "outputFolderPath/baseFilename"
 
