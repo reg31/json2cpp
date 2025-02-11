@@ -122,7 +122,8 @@ namespace compiled_json::{}::impl {{
   using object_t=json2cpp::basic_object_t<char>;
   using value_pair_t=json2cpp::basic_value_pair_t<char>;
   #endif
-  )", document_name));
+  )",
+    document_name));
 
   const auto last_obj_name = compile(json, obj_count, results.impl);
 
@@ -131,7 +132,8 @@ namespace compiled_json::{}::impl {{
 
 }}
 
-#endif)", last_obj_name));
+#endif)",
+    last_obj_name));
 
   spdlog::info("{} JSON objects processed.", obj_count);
   return results;
