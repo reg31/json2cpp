@@ -31,7 +31,7 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
 {
   const auto current_object_number = obj_count++;
 
-  const auto json_string = [](const auto &str) { return fmt::format("uR\"string({})string\"", str); };
+  const auto json_string = [](const auto &str) { return fmt::format("RAW_PREFIX(R\"string({})string\")", str); };
 
   if (value.is_object()) {
     std::vector<std::string> pairs;
@@ -40,7 +40,7 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
         fmt::format("value_pair_t{{{}, {{{}}}}},", json_string(itr.key()), compile(*itr, obj_count, lines)));
     }
 
-    lines.push_back(fmt::format(
+    lines.emplace_back(fmt::format(
       "inline constexpr std::array<value_pair_t, {}> object_data_{} = {{", pairs.size(), current_object_number));
 
     std::transform(pairs.begin(), pairs.end(), std::back_inserter(lines), [](const auto &pair) {
@@ -55,7 +55,6 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
     std::transform(value.begin(), value.end(), std::back_inserter(entries), [&](const auto &child) {
       return fmt::format("{{{}}},", compile(child, obj_count, lines));
     });
-
 
     lines.emplace_back(fmt::format(
       "inline constexpr std::array<json, {}> object_data_{} = {{{{", entries.size(), current_object_number));
@@ -93,65 +92,57 @@ compile_results compile(const std::string_view document_name, const nlohmann::or
 
   compile_results results;
 
-  results.hpp.push_back(fmt::format("#ifndef {}_COMPILED_JSON", document_name));
-  results.hpp.push_back(fmt::format("#define {}_COMPILED_JSON", document_name));
-
+  results.hpp.emplace_back(fmt::format("#ifndef {}_COMPILED_JSON", document_name));
+  results.hpp.emplace_back(fmt::format("#define {}_COMPILED_JSON", document_name));
   results.hpp.emplace_back("#include <json2cpp/json2cpp.hpp>");
 
-  results.hpp.push_back(fmt::format("namespace compiled_json::{} {{", document_name));
-  results.hpp.push_back(fmt::format("  const json2cpp::json &get();", document_name));
+  results.hpp.emplace_back(fmt::format("namespace compiled_json::{} {{", document_name));
+  results.hpp.emplace_back(fmt::format("  const json2cpp::json &get();", document_name));
   results.hpp.emplace_back("}");
 
   results.hpp.emplace_back("#endif");
 
-
-  results.impl.push_back(fmt::format(
+  results.impl.emplace_back(fmt::format(
     "// Just in case the user wants to use the entire document in a constexpr context, it can be included safely"));
-  results.impl.push_back(fmt::format("#ifndef {}_COMPILED_JSON_IMPL", document_name));
-  results.impl.push_back(fmt::format("#define {}_COMPILED_JSON_IMPL", document_name));
-
+  results.impl.emplace_back(fmt::format("#ifndef {}_COMPILED_JSON_IMPL", document_name));
+  results.impl.emplace_back(fmt::format("#define {}_COMPILED_JSON_IMPL", document_name));
   results.impl.emplace_back("#include <json2cpp/json2cpp.hpp>");
-
-  results.impl.push_back(fmt::format(R"(
+  results.impl.emplace_back(fmt::format(R"(
 namespace compiled_json::{}::impl {{
     
-#ifdef JSON2CPP_USE_UTF16
-using json = json2cpp::basic_json<char16_t>;
-using data_t=json2cpp::data_variant<char16_t>;
-using string_view=std::basic_string_view<char16_t>;
-using array_t=json2cpp::basic_array_t<char16_t>;
-using object_t=json2cpp::basic_object_t<char16_t>;
-using value_pair_t=json2cpp::basic_value_pair_t<char16_t>;
-#else
-using json = json2cpp::basic_json<char>;
-using data_t=json2cpp::data_variant<char>;
-using string_view=std::basic_string_view<char>;
-using array_t=json2cpp::basic_array_t<char>;
-using object_t=json2cpp::basic_object_t<char>;
-using value_pair_t=json2cpp::basic_value_pair_t<char>;
-#endif
-)",
-    document_name));
+  #ifdef JSON2CPP_USE_UTF16
+  #define RAW_PREFIX(str) u"" str
+  using json = json2cpp::basic_json<char16_t>;
+  using data_t=json2cpp::data_variant<char16_t>;
+  using string_view=std::basic_string_view<char16_t>;
+  using array_t=json2cpp::basic_array_t<char16_t>;
+  using object_t=json2cpp::basic_object_t<char16_t>;
+  using value_pair_t=json2cpp::basic_value_pair_t<char16_t>;
+  #else
+  #define RAW_PREFIX(str) str
+  using json = json2cpp::basic_json<char>;
+  using data_t=json2cpp::data_variant<char>;
+  using string_view=std::basic_string_view<char>;
+  using array_t=json2cpp::basic_array_t<char>;
+  using object_t=json2cpp::basic_object_t<char>;
+  using value_pair_t=json2cpp::basic_value_pair_t<char>;
+  #endif
+  )", document_name));
 
   const auto last_obj_name = compile(json, obj_count, results.impl);
 
-  results.impl.push_back(fmt::format(R"(
-inline constexpr auto document = json{{{{{}}}}};
-
+  results.impl.emplace_back(fmt::format(R"(
+  inline constexpr auto document = json{{{{{}}}}};
 
 }}
 
-#endif
-
-)",
-    last_obj_name));
+#endif)", last_obj_name));
 
 
   spdlog::info("{} JSON objects processed.", obj_count);
 
   return results;
 }
-
 
 compile_results compile(const std::string_view document_name, const std::filesystem::path &filename)
 {
@@ -198,7 +189,6 @@ void compile_to(const std::string_view document_name,
 {
   write_compilation(document_name, compile(document_name, json), base_output);
 }
-
 
 void compile_to(const std::string_view document_name,
   const std::filesystem::path &filename,
