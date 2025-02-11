@@ -389,7 +389,7 @@ template<typename CharType> struct basic_json
 #ifdef JSON2CPP_USE_UTF16
 typedef char16_t basicType;
 #else
-typedef char8_t basicType;
+typedef char basicType;
 #endif
 
 using json = basic_json<basicType>;
