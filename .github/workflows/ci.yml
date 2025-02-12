@@ -34,32 +34,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-  - name: Set up Clang (Ubuntu)
-    if: runner.os == 'Linux'
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y clang ninja-build
+      - name: Set up Clang (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build
 
-  - name: Set up Clang (macOS)
-    if: runner.os == 'macOS'
-    run: |
-      brew install llvm ninja
-      export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
+      - name: Set up Clang (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm ninja
+          export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 
-  - name: Set up Clang (Windows)
-    if: runner.os == 'Windows'
-    shell: pwsh
-    run: |
-      choco install llvm ninja -y
+      - name: Set up Clang (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh # Use PowerShell for Chocolatey
+        run: |
+          choco install llvm ninja -y
+          # Optional: Verify Clang is in PATH
+          # Write-Host "Clang Version:"
+          # clang --version
 
       - name: Configure CMake
-        run: |
-          cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-          cmake --version
-          echo "C Compiler:"
-          cmake -LA -N | grep CMAKE_C_COMPILER
-          echo "CXX Compiler:"
-          cmake -LA -N | grep CMAKE_CXX_COMPILER
+        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 
       - name: Build
         run: cmake --build ./build --config ${{matrix.build_type}}
