@@ -34,38 +34,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Clang (Ubuntu)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang ninja-build
-          echo "Verifying Clang version (Ubuntu Setup):"
-          clang --version
+  - name: Set up Clang (Ubuntu)
+    if: runner.os == 'Linux'
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y clang ninja-build
 
-      - name: Set up Clang (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install llvm ninja
-          echo "Setting up Homebrew llvm path..."
-          llvm_prefix=$(brew --prefix llvm)
-          echo "::add-path::$(brew --prefix llvm)/bin"
-          echo "Verifying Clang version (macOS Setup):"
-          clang --version
+  - name: Set up Clang (macOS)
+    if: runner.os == 'macOS'
+    run: |
+      brew install llvm ninja
+      export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 
-      - name: Set up Clang (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh # Use PowerShell for Chocolatey
-        run: |
-          choco install llvm ninja -y
-          $llvm_install_path = Get-ItemProperty -Path "HKLM:\SOFTWARE\Chocolatey\Installed\llvm" | Select-Object -ExpandProperty InstallLocation
-          if ($llvm_install_path) {
-            Write-Host "LLVM Install Path: $llvm_install_path"
-            Write-Host "::add-path::$llvm_install_path\bin"
-          } else {
-            Write-Warning "LLVM Install Path not found in Chocolatey registry. PATH might not be correctly set."
-          }
-          Write-Host "Verifying Clang version (Windows Setup):"
-          clang --version
+  - name: Set up Clang (Windows)
+    if: runner.os == 'Windows'
+    shell: pwsh
+    run: |
+      choco install llvm ninja -y
 
       - name: Configure CMake
         run: |
