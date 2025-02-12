@@ -44,7 +44,8 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install llvm ninja
-          export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
+          export CXX="/usr/local/opt/llvm/bin/clang++"
+          export CC="/usr/local/opt/llvm/bin/clang"
 
       - name: Set up Clang (Windows)
         if: runner.os == 'Windows'
