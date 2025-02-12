@@ -44,9 +44,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install llvm ninja
-          echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> /Users/runner/.bash_profile
-          export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
-          export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
+          echo "/opt/homebrew/opt/llvm/bin" >>$GITHUB_PATH
 
       - name: Set up Clang (Windows)
         if: runner.os == 'Windows'
