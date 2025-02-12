@@ -56,7 +56,7 @@ template<typename T> struct span
   [[nodiscard]] constexpr iterator end() const noexcept { return end_; }
   [[nodiscard]] constexpr std::size_t size() const noexcept
   {
-    return static_cast<std::size_t>(std::distance(begin_, end_));
+    return std::distance(begin_, end_);
   }
   [[nodiscard]] constexpr const T &operator[](std::size_t index) const { return *(begin_ + index); }
   [[nodiscard]] constexpr bool empty() const noexcept { return size() == 0; }
@@ -266,12 +266,12 @@ template<typename CharType> struct basic_json
     }
     constexpr iterator &operator+=(std::ptrdiff_t value) noexcept
     {
-      index_ = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(index_) + value);
+      index_ = index_ + value;
       return *this;
     }
     constexpr iterator &operator-=(std::ptrdiff_t value) noexcept
     {
-      index_ = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(index_) - value);
+      index_ = index_ - value;
       return *this;
     }
     constexpr std::ptrdiff_t operator-(const iterator &other) const noexcept
@@ -279,7 +279,7 @@ template<typename CharType> struct basic_json
       if (container_ != other.container_ || container_ == container_type::single) {
         throw std::runtime_error("Iterators incompatible for subtraction.");
       }
-      return static_cast<std::ptrdiff_t>(index_) - static_cast<std::ptrdiff_t>(other.index_);
+      return index_ - other.index_;
     }
 
 
@@ -372,13 +372,13 @@ template<typename CharType> struct basic_json
   {
     if constexpr (std::is_same_v<Type,
                     std::uint64_t> || std::is_same_v<Type, std::int64_t> || std::is_same_v<Type, double>) {
-      if (data.is_uinteger()) return static_cast<Type>(*data.get_if_uinteger());
-      if (data.is_integer()) return static_cast<Type>(*data.get_if_integer());
-      if (data.is_floating_point()) return static_cast<Type>(*data.get_if_floating_point());
+      if (data.is_uinteger()) return *data.get_if_uinteger();
+      if (data.is_integer()) return *data.get_if_integer();
+      if (data.is_floating_point()) return *data.get_if_floating_point();
       throw std::runtime_error("Unexpected type: number requested");
     } else if constexpr (std::is_same_v<Type,
                            std::basic_string_view<CharType>> || std::is_same_v<Type, std::basic_string<CharType>>) {
-      if (data.is_string()) return static_cast<Type>(*data.get_if_string());
+      if (data.is_string()) return *data.get_if_string();
       throw std::runtime_error("Unexpected type: string-like requested");
     } else if constexpr (std::is_same_v<Type, bool>) {
       if (data.is_boolean()) return *data.get_if_boolean();
