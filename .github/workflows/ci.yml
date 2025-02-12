@@ -46,17 +46,14 @@ jobs:
           brew install llvm ninja
           echo "/opt/homebrew/opt/llvm/bin" >>$GITHUB_PATH
 
-      - name: Set up Clang (Windows)
+      - name: Set up msvc (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install llvm ninja -y
-          # Optional: Verify Clang is in PATH
-          # Write-Host "Clang Version:"
-          # clang --version
+          choco install visualstudio2022buildtools ninja -y
 
       - name: Configure CMake
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }}
 
       - name: Build
         run: cmake --build ./build --config ${{matrix.build_type}}
