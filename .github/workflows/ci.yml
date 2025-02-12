@@ -44,12 +44,13 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install llvm ninja
-          export CXX="/usr/local/opt/llvm/bin/clang++"
-          export CC="/usr/local/opt/llvm/bin/clang"
+          echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> /Users/runner/.bash_profile
+          export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
+          export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
 
       - name: Set up Clang (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh # Use PowerShell for Chocolatey
+        shell: pwsh
         run: |
           choco install llvm ninja -y
           # Optional: Verify Clang is in PATH
