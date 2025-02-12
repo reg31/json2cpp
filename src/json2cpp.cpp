@@ -106,7 +106,7 @@ namespace compiled_json::{}::impl {{
     
   #ifdef JSON2CPP_USE_UTF16
   typedef char16_t basicType;
-   #define RAW_PREFIX(str) u"" str
+  #define RAW_PREFIX(str) u"" str
   #else
   typedef char basicType;
   #define RAW_PREFIX(str) str
