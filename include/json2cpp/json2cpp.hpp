@@ -144,7 +144,6 @@ template<typename CharType> struct basic_json
   using const_reference = const basic_json&;
   using pointer = const basic_json*;
 
-
   struct iterator
   {
     using iterator_category = std::random_access_iterator_tag;
@@ -175,7 +174,6 @@ template<typename CharType> struct basic_json
     }
     [[nodiscard]] constexpr pointer operator->() const noexcept { return &**this; }
     [[nodiscard]] constexpr std::size_t index() const noexcept { return index_; }
-    [[nodiscard]] constexpr reference value() const noexcept { return **this; }
     [[nodiscard]] constexpr std::basic_string_view<CharType> key() const
     {
       if (container_ == container_type::object) return object_ptr_[index_].first;
