@@ -54,10 +54,7 @@ template<typename T> struct span
   consteval span(const T *begin, const std::size_t size) noexcept : begin_{ begin }, end_{ begin + size } {}
   [[nodiscard]] constexpr iterator begin() const noexcept { return begin_; }
   [[nodiscard]] constexpr iterator end() const noexcept { return end_; }
-  [[nodiscard]] constexpr std::size_t size() const noexcept
-  {
-    return std::distance(begin_, end_);
-  }
+  [[nodiscard]] constexpr std::size_t size() const noexcept { return std::distance(begin_, end_); }
   [[nodiscard]] constexpr const T &operator[](std::size_t index) const { return *(begin_ + index); }
   [[nodiscard]] constexpr bool empty() const noexcept { return size() == 0; }
   iterator begin_;
