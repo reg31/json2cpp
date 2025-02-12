@@ -39,23 +39,42 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang ninja-build
+          echo "Verifying Clang version (Ubuntu Setup):"
+          clang --version
 
       - name: Set up Clang (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install llvm ninja
+          echo "Setting up Homebrew llvm path..."
+          llvm_prefix=$(brew --prefix llvm)
+          echo "::add-path::$(brew --prefix llvm)/bin"
+          echo "Verifying Clang version (macOS Setup):"
+          clang --version
 
       - name: Set up Clang (Windows)
         if: runner.os == 'Windows'
         shell: pwsh # Use PowerShell for Chocolatey
         run: |
           choco install llvm ninja -y
-          # Optional: Verify Clang is in PATH
-          # Write-Host "Clang Version:"
-          # clang --version
+          $llvm_install_path = Get-ItemProperty -Path "HKLM:\SOFTWARE\Chocolatey\Installed\llvm" | Select-Object -ExpandProperty InstallLocation
+          if ($llvm_install_path) {
+            Write-Host "LLVM Install Path: $llvm_install_path"
+            Write-Host "::add-path::$llvm_install_path\bin"
+          } else {
+            Write-Warning "LLVM Install Path not found in Chocolatey registry. PATH might not be correctly set."
+          }
+          Write-Host "Verifying Clang version (Windows Setup):"
+          clang --version
 
       - name: Configure CMake
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+        run: |
+          cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          cmake --version
+          echo "C Compiler:"
+          cmake -LA -N | grep CMAKE_C_COMPILER
+          echo "CXX Compiler:"
+          cmake -LA -N | grep CMAKE_CXX_COMPILER
 
       - name: Build
         run: cmake --build ./build --config ${{matrix.build_type}}
