@@ -49,7 +49,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh # Use PowerShell for Chocolatey
         run: |
-          choco install llvm -y
+          choco install llvm ninja -y
           # Optional: Verify Clang is in PATH
           # Write-Host "Clang Version:"
           # clang --version
