@@ -22,7 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-
 #include "json2cpp.hpp"
 #include <algorithm>
 #include <fstream>
@@ -106,23 +105,21 @@ compile_results compile(const std::string_view document_name, const nlohmann::or
 namespace compiled_json::{}::impl {{
     
   #ifdef JSON2CPP_USE_UTF16
-  #define RAW_PREFIX(str) u"" str
-  using json = json2cpp::basic_json<char16_t>;
-  using data_t=json2cpp::data_variant<char16_t>;
-  using string_view=std::basic_string_view<char16_t>;
-  using array_t=json2cpp::basic_array_t<char16_t>;
-  using object_t=json2cpp::basic_object_t<char16_t>;
-  using value_pair_t=json2cpp::basic_value_pair_t<char16_t>;
+  typedef char16_t basicType;
+   #define RAW_PREFIX(str) u"" str
   #else
+  typedef char basicType;
   #define RAW_PREFIX(str) str
-  using json = json2cpp::basic_json<char>;
-  using data_t=json2cpp::data_variant<char>;
-  using string_view=std::basic_string_view<char>;
-  using array_t=json2cpp::basic_array_t<char>;
-  using object_t=json2cpp::basic_object_t<char>;
-  using value_pair_t=json2cpp::basic_value_pair_t<char>;
   #endif
-  )", document_name));
+    
+  using json = json2cpp::basic_json<basicType>;
+  using data_t = json2cpp::data_variant<basicType>;
+  using string_view = std::basic_string_view<basicType>;
+  using array_t = json2cpp::basic_array_t<basicType>;
+  using object_t = json2cpp::basic_object_t<basicType>;
+  using value_pair_t = json2cpp::basic_value_pair_t<basicType>;
+  )",
+    document_name));
 
   const auto last_obj_name = compile(json, obj_count, results.impl);
 
@@ -131,7 +128,8 @@ namespace compiled_json::{}::impl {{
 
 }}
 
-#endif)", last_obj_name));
+#endif)",
+    last_obj_name));
 
   spdlog::info("{} JSON objects processed.", obj_count);
   return results;
