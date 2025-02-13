@@ -54,10 +54,7 @@ template<typename T> struct span
   consteval span(const T *begin, const std::size_t size) noexcept : begin_{ begin }, end_{ begin + size } {}
   [[nodiscard]] constexpr iterator begin() const noexcept { return begin_; }
   [[nodiscard]] constexpr iterator end() const noexcept { return end_; }
-  [[nodiscard]] constexpr std::size_t size() const noexcept
-  {
-    return std::distance(begin_, end_);
-  }
+  [[nodiscard]] constexpr std::size_t size() const noexcept { return std::distance(begin_, end_); }
   [[nodiscard]] constexpr const T &operator[](std::size_t index) const { return *(begin_ + index); }
   [[nodiscard]] constexpr bool empty() const noexcept { return size() == 0; }
   iterator begin_;
@@ -368,7 +365,7 @@ template<typename CharType> struct basic_json
   }
   [[nodiscard]] static consteval basic_json object() noexcept { return { data_t{ basic_object_t<CharType>{} } }; }
   [[nodiscard]] static consteval basic_json array() noexcept { return { data_t{ basic_array_t<CharType>{} } }; }
-  template<typename Type> [[nodiscard]] constexpr Type get() const // Implemented implicit conversion
+  template<typename Type> [[nodiscard]] constexpr Type get() const// Implemented implicit conversion
   {
     if constexpr (std::is_same_v<Type,
                     std::uint64_t> || std::is_same_v<Type, std::int64_t> || std::is_same_v<Type, double>) {
