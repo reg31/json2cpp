@@ -95,12 +95,27 @@ template<typename CharType> struct data_variant
   constexpr data_variant(std::nullptr_t) noexcept : value{ nullptr } {}
 
   [[nodiscard]] constexpr const bool *get_if_boolean() const noexcept { return std::get_if<bool>(&value); }
-  [[nodiscard]] constexpr const basic_array_t<CharType> *get_if_array() const noexcept { return std::get_if<basic_array_t<CharType>>(&value); }
-  [[nodiscard]] constexpr const basic_object_t<CharType> *get_if_object() const noexcept { return std::get_if<basic_object_t<CharType>>(&value); }
-  [[nodiscard]] constexpr const std::int64_t *get_if_integer() const noexcept { return std::get_if<std::int64_t>(&value); }
-  [[nodiscard]] constexpr const std::uint64_t *get_if_uinteger() const noexcept { return std::get_if<std::uint64_t>(&value); }
+  [[nodiscard]] constexpr const basic_array_t<CharType> *get_if_array() const noexcept
+  {
+    return std::get_if<basic_array_t<CharType>>(&value);
+  }
+  [[nodiscard]] constexpr const basic_object_t<CharType> *get_if_object() const noexcept
+  {
+    return std::get_if<basic_object_t<CharType>>(&value);
+  }
+  [[nodiscard]] constexpr const std::int64_t *get_if_integer() const noexcept
+  {
+    return std::get_if<std::int64_t>(&value);
+  }
+  [[nodiscard]] constexpr const std::uint64_t *get_if_uinteger() const noexcept
+  {
+    return std::get_if<std::uint64_t>(&value);
+  }
   [[nodiscard]] constexpr const double *get_if_floating_point() const noexcept { return std::get_if<double>(&value); }
-  [[nodiscard]] constexpr const std::basic_string_view<CharType> *get_if_string() const noexcept { return std::get_if<std::basic_string_view<CharType>>(&value); }
+  [[nodiscard]] constexpr const std::basic_string_view<CharType> *get_if_string() const noexcept
+  {
+    return std::get_if<std::basic_string_view<CharType>>(&value);
+  }
   [[nodiscard]] constexpr const binary_t *get_if_binary() const noexcept { return std::get_if<binary_t>(&value); }
 };
 
@@ -309,7 +324,7 @@ template<typename CharType> struct basic_json
     } else if constexpr (std::is_same_v<Type,
                            std::basic_string_view<CharType>> || std::is_same_v<Type, std::basic_string<CharType>>) {
       if (is_string()) return *data.get_if_string();
-       throw std::runtime_error("Unexpected type: string-like requested");
+      throw std::runtime_error("Unexpected type: string-like requested");
     } else if constexpr (std::is_same_v<Type, bool>) {
       if (is_boolean()) return *data.get_if_boolean();
       throw std::runtime_error("Unexpected type: bool requested");
@@ -320,10 +335,22 @@ template<typename CharType> struct basic_json
       throw std::runtime_error("Unexpected type for get()");
     }
   }
-  [[nodiscard]] constexpr bool is_object() const noexcept { return std::holds_alternative<basic_object_t<CharType>>(data.value); }
-  [[nodiscard]] constexpr bool is_array() const noexcept { return std::holds_alternative<basic_array_t<CharType>>(data.value); }
-  [[nodiscard]] constexpr bool is_string() const noexcept { return std::holds_alternative<std::basic_string_view<CharType>>(data.value); }
-  [[nodiscard]] constexpr bool is_uinteger() const noexcept { return std::holds_alternative<std::uint64_t>(data.value); }
+  [[nodiscard]] constexpr bool is_object() const noexcept
+  {
+    return std::holds_alternative<basic_object_t<CharType>>(data.value);
+  }
+  [[nodiscard]] constexpr bool is_array() const noexcept
+  {
+    return std::holds_alternative<basic_array_t<CharType>>(data.value);
+  }
+  [[nodiscard]] constexpr bool is_string() const noexcept
+  {
+    return std::holds_alternative<std::basic_string_view<CharType>>(data.value);
+  }
+  [[nodiscard]] constexpr bool is_uinteger() const noexcept
+  {
+    return std::holds_alternative<std::uint64_t>(data.value);
+  }
   [[nodiscard]] constexpr bool is_integer() const noexcept { return std::holds_alternative<std::int64_t>(data.value); }
   [[nodiscard]] constexpr bool is_floating_point() const noexcept { return std::holds_alternative<double>(data.value); }
   [[nodiscard]] constexpr bool is_boolean() const noexcept { return std::holds_alternative<bool>(data.value); }
