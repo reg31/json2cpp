@@ -47,11 +47,11 @@ template<typename T> struct span
 {
   using iterator = const T *;
   template<std::size_t Size>
-  consteval explicit span(const std::array<T, Size> &input) noexcept
+  constexpr explicit span(const std::array<T, Size> &input) noexcept
     : begin_{ input.data() }, end_{ input.data() + Size }
   {}
-  consteval span() noexcept : begin_{ nullptr }, end_{ nullptr } {}
-  consteval span(const T *begin, const std::size_t size) noexcept : begin_{ begin }, end_{ begin + size } {}
+  constexpr span() noexcept : begin_{ nullptr }, end_{ nullptr } {}
+  constexpr span(const T *begin, const std::size_t size) noexcept : begin_{ begin }, end_{ begin + size } {}
   [[nodiscard]] constexpr iterator begin() const noexcept { return begin_; }
   [[nodiscard]] constexpr iterator end() const noexcept { return end_; }
   [[nodiscard]] constexpr std::size_t size() const noexcept { return std::distance(begin_, end_); }
@@ -83,92 +83,25 @@ template<typename CharType> struct data_variant
 
   variant_t value;
 
-  consteval data_variant() : value{ std::monostate{} } {}
-  consteval data_variant(std::monostate) : value{ std::monostate{} } {}
-  consteval data_variant(bool b) : value{ b } {}
-  consteval data_variant(binary_t b) : value{ b } {}
-  consteval data_variant(basic_array_t<CharType> a) : value{ a } {}
-  consteval data_variant(basic_object_t<CharType> o) : value{ o } {}
-  consteval data_variant(std::int64_t i) : value{ i } {}
-  consteval data_variant(std::uint64_t i) : value{ i } {}
-  consteval data_variant(double d) : value{ d } {}
-  consteval data_variant(std::basic_string_view<CharType> s) : value{ s } {}
-  consteval data_variant(std::nullptr_t) : value{ nullptr } {}
+  constexpr data_variant() noexcept : value{ std::monostate{} } {}
+  constexpr data_variant(bool b) noexcept : value{ b } {}
+  constexpr data_variant(binary_t b) noexcept : value{ b } {}
+  constexpr data_variant(basic_array_t<CharType> a) noexcept : value{ a } {}
+  constexpr data_variant(basic_object_t<CharType> o) noexcept : value{ o } {}
+  constexpr data_variant(std::int64_t i) noexcept : value{ i } {}
+  constexpr data_variant(std::uint64_t i) noexcept : value{ i } {}
+  constexpr data_variant(double d) noexcept : value{ d } {}
+  constexpr data_variant(std::basic_string_view<CharType> s) noexcept : value{ s } {}
+  constexpr data_variant(std::nullptr_t) noexcept : value{ nullptr } {}
 
-  [[nodiscard]] constexpr bool is_boolean() const noexcept { return std::holds_alternative<bool>(value); }
-  [[nodiscard]] constexpr const bool *get_if_boolean() const noexcept
-  {
-    if (is_boolean())
-      return &std::get<bool>(value);
-    else
-      return nullptr;
-  }
-  [[nodiscard]] constexpr bool is_array() const noexcept
-  {
-    return std::holds_alternative<basic_array_t<CharType>>(value);
-  }
-  [[nodiscard]] constexpr const basic_array_t<CharType> *get_if_array() const noexcept
-  {
-    if (is_array())
-      return &std::get<basic_array_t<CharType>>(value);
-    else
-      return nullptr;
-  }
-  [[nodiscard]] constexpr bool is_object() const noexcept
-  {
-    return std::holds_alternative<basic_object_t<CharType>>(value);
-  }
-  [[nodiscard]] constexpr const basic_object_t<CharType> *get_if_object() const noexcept
-  {
-    if (is_object())
-      return &std::get<basic_object_t<CharType>>(value);
-    else
-      return nullptr;
-  }
-  [[nodiscard]] constexpr bool is_integer() const noexcept { return std::holds_alternative<std::int64_t>(value); }
-  [[nodiscard]] constexpr const std::int64_t *get_if_integer() const noexcept
-  {
-    if (is_integer())
-      return &std::get<std::int64_t>(value);
-    else
-      return nullptr;
-  }
-  [[nodiscard]] constexpr bool is_uinteger() const noexcept { return std::holds_alternative<std::uint64_t>(value); }
-  [[nodiscard]] constexpr const std::uint64_t *get_if_uinteger() const noexcept
-  {
-    if (is_uinteger())
-      return &std::get<std::uint64_t>(value);
-    else
-      return nullptr;
-  }
-  [[nodiscard]] constexpr bool is_floating_point() const noexcept { return std::holds_alternative<double>(value); }
-  [[nodiscard]] constexpr const double *get_if_floating_point() const noexcept
-  {
-    if (is_floating_point())
-      return &std::get<double>(value);
-    else
-      return nullptr;
-  }
-  [[nodiscard]] constexpr bool is_string() const noexcept
-  {
-    return std::holds_alternative<std::basic_string_view<CharType>>(value);
-  }
-  [[nodiscard]] constexpr const std::basic_string_view<CharType> *get_if_string() const noexcept
-  {
-    if (is_string())
-      return &std::get<std::basic_string_view<CharType>>(value);
-    else
-      return nullptr;
-  }
-  [[nodiscard]] constexpr bool is_null() const noexcept { return std::holds_alternative<std::nullptr_t>(value); }
-  [[nodiscard]] constexpr bool is_binary() const noexcept { return std::holds_alternative<binary_t>(value); }
-  [[nodiscard]] constexpr const binary_t *get_if_binary() const noexcept
-  {
-    if (is_binary())
-      return &std::get<binary_t>(value);
-    else
-      return nullptr;
-  }
+  [[nodiscard]] constexpr const bool *get_if_boolean() const noexcept { return std::get_if<bool>(&value); }
+  [[nodiscard]] constexpr const basic_array_t<CharType> *get_if_array() const noexcept { return std::get_if<basic_array_t<CharType>>(&value); }
+  [[nodiscard]] constexpr const basic_object_t<CharType> *get_if_object() const noexcept { return std::get_if<basic_object_t<CharType>>(&value); }
+  [[nodiscard]] constexpr const std::int64_t *get_if_integer() const noexcept { return std::get_if<std::int64_t>(&value); }
+  [[nodiscard]] constexpr const std::uint64_t *get_if_uinteger() const noexcept { return std::get_if<std::uint64_t>(&value); }
+  [[nodiscard]] constexpr const double *get_if_floating_point() const noexcept { return std::get_if<double>(&value); }
+  [[nodiscard]] constexpr const std::basic_string_view<CharType> *get_if_string() const noexcept { return std::get_if<std::basic_string_view<CharType>>(&value); }
+  [[nodiscard]] constexpr const binary_t *get_if_binary() const noexcept { return std::get_if<binary_t>(&value); }
 };
 
 template<typename CharType> struct basic_json
@@ -355,56 +288,59 @@ template<typename CharType> struct basic_json
   }
   [[nodiscard]] constexpr const basic_array_t<CharType> &array_data() const
   {
-    if (data.is_array()) return *data.get_if_array();
+    if (is_array()) return *data.get_if_array();
     throw std::runtime_error("value is not an array type");
   }
   [[nodiscard]] constexpr const basic_object_t<CharType> &object_data() const
   {
-    if (data.is_object()) return *data.get_if_object();
+    if (is_object()) return *data.get_if_object();
     throw std::runtime_error("value is not an object type");
   }
-  [[nodiscard]] static consteval basic_json object() noexcept { return { data_t{ basic_object_t<CharType>{} } }; }
-  [[nodiscard]] static consteval basic_json array() noexcept { return { data_t{ basic_array_t<CharType>{} } }; }
+  [[nodiscard]] static constexpr basic_json object() noexcept { return { data_t{ basic_object_t<CharType>{} } }; }
+  [[nodiscard]] static constexpr basic_json array() noexcept { return { data_t{ basic_array_t<CharType>{} } }; }
   template<typename Type> [[nodiscard]] constexpr Type get() const// Implemented implicit conversion
   {
     if constexpr (std::is_same_v<Type,
                     std::uint64_t> || std::is_same_v<Type, std::int64_t> || std::is_same_v<Type, double>) {
-      if (data.is_uinteger()) return *data.get_if_uinteger();
-      if (data.is_integer()) return *data.get_if_integer();
-      if (data.is_floating_point()) return *data.get_if_floating_point();
+      if (is_uinteger()) return *data.get_if_uinteger();
+      if (is_integer()) return *data.get_if_integer();
+      if (is_floating_point()) return *data.get_if_floating_point();
       throw std::runtime_error("Unexpected type: number requested");
     } else if constexpr (std::is_same_v<Type,
                            std::basic_string_view<CharType>> || std::is_same_v<Type, std::basic_string<CharType>>) {
-      if (data.is_string()) return *data.get_if_string();
-      throw std::runtime_error("Unexpected type: string-like requested");
+      if (is_string()) return *data.get_if_string();
+       throw std::runtime_error("Unexpected type: string-like requested");
     } else if constexpr (std::is_same_v<Type, bool>) {
-      if (data.is_boolean()) return *data.get_if_boolean();
+      if (is_boolean()) return *data.get_if_boolean();
       throw std::runtime_error("Unexpected type: bool requested");
     } else if constexpr (std::is_same_v<Type, std::nullptr_t>) {
-      if (data.is_null()) return nullptr;
+      if (is_null()) return nullptr;
       throw std::runtime_error("Unexpected type: null requested");
     } else {
       throw std::runtime_error("Unexpected type for get()");
     }
   }
-  [[nodiscard]] constexpr bool is_object() const noexcept { return data.is_object(); }
-  [[nodiscard]] constexpr bool is_array() const noexcept { return data.is_array(); }
-  [[nodiscard]] constexpr bool is_string() const noexcept { return data.is_string(); }
-  [[nodiscard]] constexpr bool is_boolean() const noexcept { return data.is_boolean(); }
+  [[nodiscard]] constexpr bool is_object() const noexcept { return std::holds_alternative<basic_object_t<CharType>>(data.value); }
+  [[nodiscard]] constexpr bool is_array() const noexcept { return std::holds_alternative<basic_array_t<CharType>>(data.value); }
+  [[nodiscard]] constexpr bool is_string() const noexcept { return std::holds_alternative<std::basic_string_view<CharType>>(data.value); }
+  [[nodiscard]] constexpr bool is_uinteger() const noexcept { return std::holds_alternative<std::uint64_t>(data.value); }
+  [[nodiscard]] constexpr bool is_integer() const noexcept { return std::holds_alternative<std::int64_t>(data.value); }
+  [[nodiscard]] constexpr bool is_floating_point() const noexcept { return std::holds_alternative<double>(data.value); }
+  [[nodiscard]] constexpr bool is_boolean() const noexcept { return std::holds_alternative<bool>(data.value); }
   [[nodiscard]] constexpr bool is_structured() const noexcept { return is_object() || is_array(); }
   [[nodiscard]] constexpr bool is_number() const noexcept { return is_number_integer() || is_number_float(); }
-  [[nodiscard]] constexpr bool is_number_integer() const noexcept { return data.is_integer() || data.is_uinteger(); }
-  [[nodiscard]] constexpr bool is_null() const noexcept { return data.is_null(); }
-  [[nodiscard]] constexpr bool is_binary() const noexcept { return data.is_binary(); }
-  [[nodiscard]] constexpr bool is_number_signed() const noexcept { return data.is_integer(); }
-  [[nodiscard]] constexpr bool is_number_unsigned() const noexcept { return data.is_uinteger(); }
-  [[nodiscard]] constexpr bool is_number_float() const noexcept { return data.is_floating_point(); }
+  [[nodiscard]] constexpr bool is_number_integer() const noexcept { return is_integer() || is_uinteger(); }
+  [[nodiscard]] constexpr bool is_null() const noexcept { return std::holds_alternative<std::nullptr_t>(data.value); }
+  [[nodiscard]] constexpr bool is_binary() const noexcept { return std::holds_alternative<binary_t>(data.value); }
+  [[nodiscard]] constexpr bool is_number_signed() const noexcept { return is_integer(); }
+  [[nodiscard]] constexpr bool is_number_unsigned() const noexcept { return is_uinteger(); }
+  [[nodiscard]] constexpr bool is_number_float() const noexcept { return is_floating_point(); }
   [[nodiscard]] constexpr bool is_primitive() const noexcept
   {
     return is_null() || is_string() || is_boolean() || is_number() || is_binary();
   }
-  consteval basic_json() = default;
-  consteval basic_json(const data_t &d) noexcept : data{ d } {}
+  constexpr basic_json() = default;
+  constexpr basic_json(const data_t &d) noexcept : data{ d } {}
   data_t data;
 };
 
