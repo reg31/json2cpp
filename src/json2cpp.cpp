@@ -113,7 +113,6 @@ namespace compiled_json::{}::impl {{
   #endif
     
   using json = json2cpp::basic_json<basicType>;
-  using data_t = json2cpp::data_variant<basicType>;
   using string_view = std::basic_string_view<basicType>;
   using array_t = json2cpp::basic_array_t<basicType>;
   using object_t = json2cpp::basic_object_t<basicType>;
