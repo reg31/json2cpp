@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2022 Jason Turner
+Copyright (c) 2025 Jason Turner, Regis Duflaut-Averty
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -27,6 +27,7 @@ SOFTWARE.
 
 #include <algorithm>
 #include <array>
+#include <compare>
 #include <cstdint>
 #include <stdexcept>
 #include <string_view>
@@ -37,28 +38,27 @@ template<typename CharType> struct basic_json;
 template<typename F, typename S> struct pair
 {
   F first;
-  S second;
+  [[no_unique_address]] S second;
 };
-
 template<typename T> struct span
 {
-  using iterator = const T *;
-
-  constexpr span() noexcept : begin_{ nullptr }, end_{ nullptr } {}
-  constexpr span(const T *begin, const std::size_t size) noexcept : begin_{ begin }, end_{ begin + size } {}
-
   template<std::size_t Size>
-  constexpr explicit span(const std::array<T, Size> &input) noexcept : begin_{ input.data() }, end_{ begin_ + Size }
+  constexpr explicit span(const std::array<T, Size> &input)
+    : begin_{ input.data() }, end_{ std::next(input.data(), Size) }
   {}
 
-  [[nodiscard]] constexpr iterator begin() const noexcept { return begin_; }
-  [[nodiscard]] constexpr iterator end() const noexcept { return end_; }
-  [[nodiscard]] constexpr std::size_t size() const noexcept { return end_ - begin_; }
+  constexpr span() : begin_{ nullptr }, end_{ nullptr } {}
+  [[nodiscard]] constexpr const T *begin() const noexcept { return begin_; }
+  [[nodiscard]] constexpr const T *end() const noexcept { return end_; }
   [[nodiscard]] constexpr const T &operator[](std::size_t index) const { return begin_[index]; }
   [[nodiscard]] constexpr bool empty() const noexcept { return begin_ == end_; }
+  [[nodiscard]] constexpr std::size_t size() const noexcept
+  {
+    return static_cast<std::size_t>(std::distance(begin_, end_));
+  }
 
-  iterator begin_;
-  iterator end_;
+  const T *begin_;
+  const T *end_;
 };
 
 template<typename CharType> using basic_value_pair_t = pair<std::basic_string_view<CharType>, basic_json<CharType>>;
@@ -68,28 +68,39 @@ template<typename CharType> using basic_array_t = span<basic_json<CharType>>;
 template<typename CharType> struct basic_json
 {
 
+private:
+  enum class Type { Null, Boolean, Binary, Array, Object, Integer, UInteger, Float, String };
+  Type value_type{ Type::Null };
+
+  union {
+    bool boolean_value;
+    basic_array_t<CharType> array_value;
+    basic_object_t<CharType> object_value;
+    std::int64_t int_value;
+    std::uint64_t uint_value;
+    double float_value;
+    std::basic_string_view<CharType> string_value;
+  };
+
   struct iterator
   {
-    enum class container_type { null, array, object };
-    constexpr iterator() noexcept : container_(container_type::null), index_(0), value_(nullptr) {}
-
-    constexpr iterator(const basic_json &value, std::size_t index = 0) noexcept : index_(index), value_(&value)
-    {
-      container_ = value.is_array()    ? container_type::array
-                   : value.is_object() ? container_type::object
-                                       : container_type::null;
-    }
+    constexpr iterator() noexcept : container_type(Type::Null), index_(0), value_(nullptr) {}
+    constexpr iterator(Type type, const basic_json &value, std::size_t index = 0) noexcept
+      : index_(index), value_(&value), container_type(type)
+    {}
 
     [[nodiscard]] constexpr const basic_json &operator*() const
     {
-      if (container_ == container_type::array)
+      if (container_type == Type::Array)
         return value_->array_data()[index_];
-      else if (container_ == container_type::object)
+      else if (container_type == Type::Object)
         return value_->object_data()[index_].second;
       return *value_;
     }
 
     [[nodiscard]] constexpr const basic_json *operator->() const noexcept { return &(operator*()); }
+    [[nodiscard]] constexpr std::size_t index() const noexcept { return index_; }
+    [[nodiscard]] constexpr auto operator<=>(const iterator &) const = default;
     constexpr iterator &operator++() noexcept
     {
       ++index_;
@@ -101,38 +112,16 @@ template<typename CharType> struct basic_json
       return *this;
     }
 
-    [[nodiscard]] constexpr bool operator==(const iterator &other) const noexcept
-    {
-      return container_ == other.container_ && index_ == other.index_ && value_ == other.value_;
-    }
-
-    [[nodiscard]] constexpr bool operator!=(const iterator &other) const noexcept { return !(*this == other); }
-
-    [[nodiscard]] constexpr std::size_t index() const noexcept { return index_; }
     [[nodiscard]] constexpr std::basic_string_view<CharType> key() const
     {
-      if (container_ == container_type::object) return value_->object_data()[index_].first;
+      if (container_type == Type::Object) return value_->object_data()[index_].first;
       throw std::runtime_error("json value is not an object, it has no key");
     }
 
   private:
     std::size_t index_{ 0 };
-    container_type container_;
+    Type container_type{ Type::Null };
     const basic_json *value_{ nullptr };
-  };
-
-private:
-  enum class Type { Null, Boolean, Binary, Array, Object, Integer, UInteger, Float, String };
-
-  Type value_type = Type::Null;
-  union {
-    bool boolean_value;
-    basic_array_t<CharType> array_value;
-    basic_object_t<CharType> object_value;
-    std::int64_t int_value;
-    std::uint64_t uint_value;
-    double float_value;
-    std::basic_string_view<CharType> string_value;
   };
 
 public:
@@ -146,10 +135,10 @@ public:
   constexpr basic_json(std::basic_string_view<CharType> v) noexcept : string_value{ v }, value_type(Type::String) {}
   constexpr basic_json(std::nullptr_t) noexcept : value_type(Type::Null) {}
 
-  [[nodiscard]] constexpr iterator begin() const noexcept { return iterator{ *this, 0 }; }
+  [[nodiscard]] constexpr iterator begin() const noexcept { return iterator{ value_type, *this, 0 }; }
   [[nodiscard]] constexpr iterator end() const noexcept
   {
-    return iterator{ *this, is_array() ? array_data().size() : is_object() ? object_data().size() : 1 };
+    return iterator{ value_type, *this, is_array() ? array_data().size() : is_object() ? object_data().size() : 1 };
   }
 
   [[nodiscard]] constexpr const basic_array_t<CharType> &array_data() const
@@ -190,7 +179,6 @@ public:
   }
 
   [[nodiscard]] constexpr bool empty() const noexcept { return size() == 0; }
-
   [[nodiscard]] constexpr const basic_json &operator[](std::size_t idx) const
   {
     if (!is_array() || idx >= array_data().size()) throw std::runtime_error("Invalid array access");
@@ -211,13 +199,13 @@ public:
   {
     return at(key);
   }
-
   [[nodiscard]] constexpr iterator find(const std::basic_string_view<CharType> &key) const noexcept
   {
     if (is_object()) {
       auto it = std::find_if(object_data().begin(), object_data().end(), [&](const auto &p) { return p.first == key; });
 
-      if (it != object_data().end()) return iterator{ *this, static_cast<std::size_t>(it - object_data().begin()) };
+      if (it != object_data().end())
+        return iterator{ value_type, *this, static_cast<std::size_t>(it - object_data().begin()) };
     }
     return end();
   }
@@ -226,7 +214,6 @@ public:
   {
     return find(key) != end();
   }
-
   template<typename Type> [[nodiscard]] constexpr Type get() const
   {
     if constexpr (std::is_same_v<Type,
