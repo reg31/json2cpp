@@ -9,7 +9,7 @@ function(json2cpp_setup_dependencies)
   # already been provided to us by a parent project
 
   if(NOT TARGET fmtlib::fmtlib)
-    cpmaddpackage("gh:fmtlib/fmt#11.1.3")
+    cpmaddpackage("gh:fmtlib/fmt#11.1.4")
   endif()
 
   if(NOT TARGET spdlog::spdlog)
@@ -29,19 +29,19 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET CLI11::CLI11)
-    cpmaddpackage("gh:CLIUtils/CLI11@2.4.2")
+    cpmaddpackage("gh:CLIUtils/CLI11@2.5.0")
   endif()
 
   if(NOT TARGET ftxui::screen)
-    cpmaddpackage("gh:ArthurSonzogni/FTXUI#15587dad01a9ef0e5e79d97a16adf414f60669a5")
+    cpmaddpackage("gh:ArthurSonzogni/FTXUI#8519e9b0f31ac8f5765a3fc63c3b80a5cfbe9d6d")
   endif()
 
   if(NOT TARGET nlohmann_json::nlohmann_json)
-    cpmaddpackage("gh:nlohmann/json#606b6347edf0758c531abb6c36743e09a4c48a84")
+    cpmaddpackage("gh:nlohmann/json#34665ae6485651766f1bdca23787dc6b3c9bdb84")
   endif()
 
   if(NOT TARGET ValiJSON::valijson)
-    cpmaddpackage("gh:tristanpenman/valijson@1.0.3")
+    cpmaddpackage("gh:tristanpenman/valijson@1.0.4")
   endif()
 
 
