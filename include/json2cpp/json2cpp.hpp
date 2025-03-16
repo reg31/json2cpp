@@ -33,30 +33,27 @@ SOFTWARE.
 #include <string_view>
 
 namespace json2cpp {
-
 template<typename CharType> struct basic_json;
 template<typename F, typename S> struct pair
 {
   F first;
   [[no_unique_address]] S second;
 };
+
 template<typename T> struct span
 {
   template<std::size_t Size>
-  constexpr explicit span(const std::array<T, Size> &input)
-    : begin_{ input.data() }, end_{ std::next(input.data(), Size) }
+  constexpr explicit span(const std::array<T, Size> &input) : begin_(input.data()), end_(std::next(input.data(), Size))
   {}
-
-  constexpr span() : begin_{ nullptr }, end_{ nullptr } {}
+  constexpr span() : begin_(nullptr), end_(nullptr) {}
   [[nodiscard]] constexpr const T *begin() const noexcept { return begin_; }
   [[nodiscard]] constexpr const T *end() const noexcept { return end_; }
   [[nodiscard]] constexpr const T &operator[](std::size_t index) const { return begin_[index]; }
-  [[nodiscard]] constexpr bool empty() const noexcept { return begin_ == end_; }
   [[nodiscard]] constexpr std::size_t size() const noexcept
   {
     return static_cast<std::size_t>(std::distance(begin_, end_));
   }
-
+  [[nodiscard]] constexpr bool empty() const noexcept { return size() == 0; }
   const T *begin_;
   const T *end_;
 };
@@ -67,9 +64,8 @@ template<typename CharType> using basic_array_t = span<basic_json<CharType>>;
 
 template<typename CharType> struct basic_json
 {
-
 private:
-  enum class Type { Null, Boolean, Binary, Array, Object, Integer, UInteger, Float, String };
+  enum class Type { Null, Boolean, Array, Object, Integer, UInteger, Float, String };
   Type value_type{ Type::Null };
 
   union {
@@ -84,17 +80,17 @@ private:
 
   struct iterator
   {
-    constexpr iterator() noexcept : container_type(Type::Null), index_(0), value_(nullptr) {}
+    constexpr iterator() noexcept = default;
     constexpr iterator(Type type, const basic_json &value, std::size_t index = 0) noexcept
       : index_(index), value_(&value), container_type(type)
     {}
 
     [[nodiscard]] constexpr const basic_json &operator*() const
     {
-      if (container_type == Type::Array)
-        return value_->array_data()[index_];
-      else if (container_type == Type::Object)
+      if (container_type == Type::Object)
         return value_->object_data()[index_].second;
+      else if (container_type == Type::Array)
+        return value_->array_data()[index_];
       return *value_;
     }
 
@@ -111,6 +107,18 @@ private:
       --index_;
       return *this;
     }
+    constexpr iterator operator++(int) noexcept
+    {
+      iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+    constexpr iterator operator--(int) noexcept
+    {
+      iterator tmp = *this;
+      --(*this);
+      return tmp;
+    }
 
     [[nodiscard]] constexpr std::basic_string_view<CharType> key() const
     {
@@ -126,6 +134,7 @@ private:
 
 public:
   constexpr basic_json() noexcept = default;
+  constexpr basic_json(std::nullptr_t) noexcept : value_type(Type::Null) {}
   constexpr basic_json(bool v) noexcept : boolean_value{ v }, value_type(Type::Boolean) {}
   constexpr basic_json(basic_array_t<CharType> v) noexcept : array_value{ v }, value_type(Type::Array) {}
   constexpr basic_json(basic_object_t<CharType> v) noexcept : object_value{ v }, value_type(Type::Object) {}
@@ -133,13 +142,11 @@ public:
   constexpr basic_json(std::uint64_t v) noexcept : uint_value{ v }, value_type(Type::UInteger) {}
   constexpr basic_json(double v) noexcept : float_value{ v }, value_type(Type::Float) {}
   constexpr basic_json(std::basic_string_view<CharType> v) noexcept : string_value{ v }, value_type(Type::String) {}
-  constexpr basic_json(std::nullptr_t) noexcept : value_type(Type::Null) {}
 
   [[nodiscard]] constexpr iterator begin() const noexcept { return iterator{ value_type, *this, 0 }; }
-  [[nodiscard]] constexpr iterator end() const noexcept
-  {
-    return iterator{ value_type, *this, is_array() ? array_data().size() : is_object() ? object_data().size() : 1 };
-  }
+  [[nodiscard]] constexpr iterator end() const noexcept { return iterator{ value_type, *this, size() }; }
+  [[nodiscard]] constexpr const iterator cbegin() const noexcept { return begin(); }
+  [[nodiscard]] constexpr const iterator cend() const noexcept { return end(); }
 
   [[nodiscard]] constexpr const basic_array_t<CharType> &array_data() const
   {
@@ -172,13 +179,14 @@ public:
 
   [[nodiscard]] constexpr std::size_t size() const noexcept
   {
-    if (is_null()) return 0;
     if (is_object()) return object_data().size();
     if (is_array()) return array_data().size();
+    if (is_null()) return 0;
     return 1;
   }
 
   [[nodiscard]] constexpr bool empty() const noexcept { return size() == 0; }
+
   [[nodiscard]] constexpr const basic_json &operator[](std::size_t idx) const
   {
     if (!is_array() || idx >= array_data().size()) throw std::runtime_error("Invalid array access");
@@ -188,9 +196,7 @@ public:
   [[nodiscard]] constexpr const basic_json &at(const std::basic_string_view<CharType> &key) const
   {
     if (!is_object()) throw std::runtime_error("Not an object");
-
     auto it = std::find_if(object_data().begin(), object_data().end(), [&](const auto &p) { return p.first == key; });
-
     if (it == object_data().end()) throw std::out_of_range("Key not found");
     return it->second;
   }
@@ -199,13 +205,13 @@ public:
   {
     return at(key);
   }
+
   [[nodiscard]] constexpr iterator find(const std::basic_string_view<CharType> &key) const noexcept
   {
     if (is_object()) {
-      auto it = std::find_if(object_data().begin(), object_data().end(), [&](const auto &p) { return p.first == key; });
-
-      if (it != object_data().end())
-        return iterator{ value_type, *this, static_cast<std::size_t>(it - object_data().begin()) };
+      for (auto itr = begin(); itr != end(); ++itr) {
+        if (itr.key() == key) { return itr; }
+      }
     }
     return end();
   }
@@ -214,6 +220,7 @@ public:
   {
     return find(key) != end();
   }
+
   template<typename Type> [[nodiscard]] constexpr Type get() const
   {
     if constexpr (std::is_same_v<Type,
@@ -247,7 +254,6 @@ using json = basic_json<basicType>;
 using object_t = basic_object_t<basicType>;
 using value_pair_t = basic_value_pair_t<basicType>;
 using array_t = basic_array_t<basicType>;
-
 }// namespace json2cpp
 
 #endif
