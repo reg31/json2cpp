@@ -155,12 +155,13 @@ function(json2cpp_package_project)
   unset(_PackageProject_TARGETS)
 
   # download ForwardArguments
-  FetchContent_Declare(_fargs URL https://github.com/polysquare/cmake-forward-arguments/archive/eb9bf4f020c30667613f993ed630e45da527293d.zip)
-  FetchContent_GetProperties(_fargs)
-  if(NOT _fargs_POPULATED)
-    FetchContent_Populate(_fargs)
-  endif()
-  include("${_fargs_SOURCE_DIR}/ForwardArguments.cmake")
+file(DOWNLOAD 
+     https://github.com/polysquare/cmake-forward-arguments/archive/eb9bf4f020c30667613f993ed630e45da527293d.zip
+     ${CMAKE_CURRENT_BINARY_DIR}/eb9bf4f020c30667613f993ed630e45da527293d.zip)
+file(ARCHIVE_EXTRACT 
+     INPUT ${CMAKE_CURRENT_BINARY_DIR}/eb9bf4f020c30667613f993ed630e45da527293d.zip
+     DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/extracted)
+include("${CMAKE_CURRENT_BINARY_DIR}/extracted/cmake-forward-arguments-eb9bf4f020c30667613f993ed630e45da527293d/ForwardArguments.cmake")
 
   # prepare the forward arguments for ycm
   set(_FARGS_LIST)

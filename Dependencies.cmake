@@ -17,7 +17,7 @@ function(json2cpp_setup_dependencies)
       NAME
       spdlog
       VERSION
-      1.15.1
+      1.15.2
       GITHUB_REPOSITORY
       "gabime/spdlog"
       OPTIONS
@@ -25,7 +25,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET Catch2::Catch2WithMain)
-    cpmaddpackage("gh:catchorg/Catch2@3.8.0")
+    cpmaddpackage("gh:catchorg/Catch2@3.8.1")
   endif()
 
   if(NOT TARGET CLI11::CLI11)
@@ -37,12 +37,11 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET nlohmann_json::nlohmann_json)
-    cpmaddpackage("gh:nlohmann/json#34665ae6485651766f1bdca23787dc6b3c9bdb84")
+    cpmaddpackage("gh:nlohmann/json@3.12.0")
   endif()
 
   if(NOT TARGET ValiJSON::valijson)
-    cpmaddpackage("gh:tristanpenman/valijson@1.0.4")
+    cpmaddpackage("gh:tristanpenman/valijson@1.0.5")
   endif()
-
 
 endfunction()
