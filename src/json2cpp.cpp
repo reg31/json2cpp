@@ -25,30 +25,102 @@ SOFTWARE.
 #include "json2cpp.hpp"
 #include <algorithm>
 #include <fstream>
+#include <unordered_map>
 
-std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count, std::vector<std::string> &lines)
+// Function to format a string for JSON output
+std::string format_json_string(const std::string& str) {
+  bool needs_raw_string = str.find('"') != std::string::npos ||
+                          str.find('\\') != std::string::npos ||
+                          str.find('\n') != std::string::npos ||
+                          str.find('\r') != std::string::npos ||
+                          str.find('\t') != std::string::npos;
+  
+  if (needs_raw_string) {
+    return fmt::format("string_view{{RAW_PREFIX(R\"string({})string\")}}", str);
+  } else {
+    return fmt::format("string_view{{RAW_PREFIX(\"{}\")}}", str);
+  }
+}
+
+struct StringDuplicateTracker {
+  std::unordered_map<std::string, int> string_counts;
+  std::unordered_map<std::string, std::string> string_to_var;
+  std::vector<std::string> definitions;
+  std::size_t counter = 0;
+  
+  void count_string(const std::string& str) {
+    string_counts[str]++;
+  }
+  
+  void generate_definitions() {
+    for (const auto& [str, count] : string_counts) {
+      if (count > 1) {
+        std::string var_name = fmt::format("shared_str_{}", counter++);
+        string_to_var[str] = var_name;
+        definitions.emplace_back(fmt::format("inline constexpr auto {} = {};", var_name, format_json_string(str)));
+      }
+    }
+	
+	if(!definitions.empty())
+		definitions.emplace_back();
+  }
+  
+  std::string get_string_representation(const std::string& str) {
+    auto it = string_to_var.find(str);
+    if (it != string_to_var.end()) {
+      return it->second;
+    } else {
+      return format_json_string(str);
+    }
+  }
+  
+  const std::vector<std::string>& get_definitions() const {	
+    return definitions;
+  }
+  
+  std::size_t get_reused_count() const {
+    return string_to_var.size();
+  }
+  
+  int32_t get_total_references_saved() const {
+    int32_t count = 0;
+    for (const auto& [str, _] : string_to_var) {
+      count += string_counts.at(str) - 1;
+    }
+    return count;
+  }
+};
+
+void count_strings(const nlohmann::ordered_json &value, StringDuplicateTracker &string_tracker) {
+  if (value.is_object()) {
+    for (auto itr = value.begin(); itr != value.end(); ++itr) {
+      string_tracker.count_string(itr.key());
+      count_strings(*itr, string_tracker);
+    }
+  } else if (value.is_array()) {
+    for (const auto& item : value) {
+      count_strings(item, string_tracker);
+    }
+  } else if (value.is_string()) {
+    string_tracker.count_string(value.get<std::string>());
+  }
+}
+
+std::string compile(const nlohmann::ordered_json &value, 
+                   std::size_t &obj_count, 
+                   std::vector<std::string> &lines,
+                   StringDuplicateTracker &string_tracker)
 {
   const auto current_object_number = obj_count++;
   
-  const auto json_string = [](const auto &str) {
-	  bool needs_raw_string = str.find('"') != std::string::npos ||
-							  str.find('\\') != std::string::npos ||
-							  str.find('\n') != std::string::npos ||
-							  str.find('\r') != std::string::npos ||
-							  str.find('\t') != std::string::npos;
-	  
-	  if (needs_raw_string) {
-		return fmt::format("RAW_PREFIX(R\"string({})string\")", str);
-	  } else {
-		return fmt::format("RAW_PREFIX(\"{}\")", str);
-	  }
-	};
-
   if (value.is_object()) {
     std::vector<std::string> pairs;
     for (auto itr = value.begin(); itr != value.end(); ++itr) {
+      const auto key_repr = string_tracker.get_string_representation(itr.key());
       pairs.emplace_back(
-        fmt::format("value_pair_t{{{}, {{{}}}}},", json_string(itr.key()), compile(*itr, obj_count, lines)));
+        fmt::format("value_pair_t{{{}, {}}},", 
+                   key_repr, 
+                   compile(*itr, obj_count, lines, string_tracker)));
     }
 
     lines.emplace_back(fmt::format(
@@ -64,7 +136,7 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
   } else if (value.is_array()) {
     std::vector<std::string> entries;
     std::transform(value.begin(), value.end(), std::back_inserter(entries), [&](const auto &child) {
-      return fmt::format("{{{}}},", compile(child, obj_count, lines));
+      return fmt::format("{{{}}},", compile(child, obj_count, lines, string_tracker));
     });
 
     lines.emplace_back(fmt::format(
@@ -78,17 +150,18 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
     return fmt::format("array_t{{object_data_{}}}", current_object_number);
 
   } else if (value.is_number_float()) {
-    return fmt::format("double{{{}}}", value.get<double>());
+      return fmt::format("double{{{}}}", value.get<double>());
   } else if (value.is_number_unsigned()) {
-    return fmt::format("std::uint64_t{{{}}}", value.get<std::uint64_t>());
+      return fmt::format("std::uint64_t{{{}}}", value.get<std::uint64_t>());
   } else if (value.is_number() && !value.is_number_unsigned()) {
-    return fmt::format("std::int64_t{{{}}}", value.get<std::int64_t>());
+      return fmt::format("std::int64_t{{{}}}", value.get<std::int64_t>());
   } else if (value.is_boolean()) {
-    return fmt::format("bool{{{}}}", value.get<bool>());
+      return fmt::format("bool{{{}}}", value.get<bool>());
   } else if (value.is_string()) {
-    return fmt::format("string_view{{{}}}", json_string(value.get<std::string>()));
+      const auto value_repr = string_tracker.get_string_representation(value.get<std::string>());
+      return value_repr;
   } else if (value.is_null()) {
-    return "std::nullptr_t{}";
+      return "std::nullptr_t{}";
   }
 
   return "unhandled";
@@ -96,7 +169,7 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
 
 compile_results compile(const std::string_view document_name, const nlohmann::ordered_json &json)
 {
-  std::size_t obj_count{ 0 };
+  StringDuplicateTracker string_tracker;
   compile_results results;
 
   results.hpp.emplace_back(fmt::format("#ifndef {}_COMPILED_JSON", document_name));
@@ -126,14 +199,20 @@ namespace compiled_json::{}::impl {{
   #endif
     
   using json = json2cpp::basic_json<basicType>;
-  using string_view = std::basic_string_view<basicType>;
   using array_t = json2cpp::basic_array_t<basicType>;
   using object_t = json2cpp::basic_object_t<basicType>;
+  using string_view = std::basic_string_view<basicType>;
   using value_pair_t = json2cpp::basic_value_pair_t<basicType>;
   )",
     document_name));
 
-  const auto last_obj_name = compile(json, obj_count, results.impl);
+  count_strings(json, string_tracker);
+  string_tracker.generate_definitions();
+  const auto& string_defs = string_tracker.get_definitions();
+  results.impl.insert(results.impl.end(), string_defs.begin(), string_defs.end());
+
+  std::size_t obj_count = 0;
+  const auto last_obj_name = compile(json, obj_count, results.impl, string_tracker);
 
   results.impl.emplace_back(fmt::format(R"(
   inline constexpr auto document = json{{{{{}}}}};
@@ -144,6 +223,7 @@ namespace compiled_json::{}::impl {{
     last_obj_name));
 
   spdlog::info("{} JSON objects processed.", obj_count);
+  spdlog::info("{} duplicate strings reused, saving {} string definitions.", string_tracker.get_reused_count(), string_tracker.get_total_references_saved());
   return results;
 }
 
