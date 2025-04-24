@@ -29,7 +29,20 @@ SOFTWARE.
 std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count, std::vector<std::string> &lines)
 {
   const auto current_object_number = obj_count++;
-  const auto json_string = [](const auto &str) { return fmt::format("RAW_PREFIX(R\"string({})string\")", str); };
+  
+  const auto json_string = [](const auto &str) {
+	  bool needs_raw_string = str.find('"') != std::string::npos ||
+							  str.find('\\') != std::string::npos ||
+							  str.find('\n') != std::string::npos ||
+							  str.find('\r') != std::string::npos ||
+							  str.find('\t') != std::string::npos;
+	  
+	  if (needs_raw_string) {
+		return fmt::format("RAW_PREFIX(R\"string({})string\")", str);
+	  } else {
+		return fmt::format("RAW_PREFIX(\"{}\")", str);
+	  }
+	};
 
   if (value.is_object()) {
     std::vector<std::string> pairs;
