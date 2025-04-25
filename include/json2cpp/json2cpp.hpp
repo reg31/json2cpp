@@ -71,7 +71,7 @@ private:
 
   struct StringStorage
   {
-    static constexpr size_t capacity = sizeof(std::basic_string_view<CharType>) / sizeof(CharType);
+    static constexpr uint8_t capacity = sizeof(std::basic_string_view<CharType>) / sizeof(CharType);
 
     union Storage {
       std::array<CharType, capacity> short_data;
@@ -83,12 +83,11 @@ private:
 
     size_t length = 0;
     Storage storage{};
-    bool is_short = false;
 
     constexpr StringStorage() noexcept = default;
     constexpr StringStorage(std::basic_string_view<CharType> sv) noexcept : length{ sv.size() }
     {
-      if (is_short = (length <= capacity); is_short)
+      if (length <= capacity)
         std::copy_n(sv.begin(), length, storage.short_data.begin());
       else
         storage = Storage{ sv };
@@ -97,7 +96,7 @@ private:
     [[nodiscard]] constexpr size_t size() const noexcept { return length; }
     constexpr std::basic_string_view<CharType> get() const noexcept
     {
-      return is_short ? std::basic_string_view<CharType>{ storage.short_data.begin(), length } : storage.long_data;
+      return length <= capacity ? std::basic_string_view<CharType>{ storage.short_data.begin(), length } : storage.long_data;
     }
   };
 
@@ -115,8 +114,7 @@ private:
   {
     constexpr iterator() noexcept = default;
     constexpr iterator(const void *data_ptr, size_t index = 0, Type type = Type::Null) noexcept
-      : data_ptr_(data_ptr), index_(index), container_type_(type)
-    {}
+      : data_ptr_(data_ptr), index_(index), container_type_(type) {}
 
     [[nodiscard]] constexpr const basic_json &operator*() const
     {
@@ -130,29 +128,12 @@ private:
 
     [[nodiscard]] constexpr const basic_json *operator->() const noexcept { return &(operator*()); }
     [[nodiscard]] constexpr ssize_t index() const noexcept { return index_; }
-    constexpr iterator &operator++() noexcept
-    {
-      ++index_;
-      return *this;
-    }
-    constexpr iterator &operator--() noexcept
-    {
-      --index_;
-      return *this;
-    }
-    constexpr iterator operator++(int) noexcept
-    {
-      iterator copy = *this;
-      ++(*this);
-      return copy;
-    }
-    constexpr iterator operator--(int) noexcept
-    {
-      iterator copy = *this;
-      --(*this);
-      return copy;
-    }
-
+	
+    constexpr iterator &operator++() noexcept { ++index_; return *this; }
+    constexpr iterator &operator--() noexcept { --index_; return *this; }
+    constexpr iterator operator++(int) noexcept { iterator copy = *this; ++(*this);  return copy; }
+    constexpr iterator operator--(int) noexcept { iterator copy = *this; --(*this);  return copy; }
+	
     [[nodiscard]] constexpr std::basic_string_view<CharType> key() const
     {
       if (container_type_ == Type::Object) {
@@ -200,8 +181,8 @@ public:
   [[nodiscard]] constexpr size_t size() const noexcept
   {
     if (is_object()) return object_data().size();
+	if (is_string()) return string_value.size();
     if (is_array()) return array_data().size();
-    if (value_type == Type::String) return string_value.size();
     if (is_null()) return 0;
     return 1;
   }
