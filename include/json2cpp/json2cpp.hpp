@@ -47,9 +47,8 @@ private:
 
 public:
   template<std::size_t Size>
-  constexpr explicit span(const std::array<T, Size> &input) noexcept : data_(input.data()), count_(Size)
-  {}
-  constexpr span(const T *ptr, std::size_t count) noexcept : data_(ptr), count_(count) {}
+  constexpr explicit span(const std::array<T, Size> &input) noexcept : data_(input.data()), count_(Size) {}
+  
   constexpr span() noexcept = default;
   [[nodiscard]] constexpr const T *begin() const noexcept { return data_; }
   [[nodiscard]] constexpr const T *end() const noexcept { return data_ + count_; }
