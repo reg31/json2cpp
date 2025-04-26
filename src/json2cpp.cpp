@@ -189,8 +189,7 @@ namespace compiled_json::{}::impl {{
   using array_t = json2cpp::basic_array_t<basicType>;
   using object_t = json2cpp::basic_object_t<basicType>;
   using value_pair_t = json2cpp::basic_value_pair_t<basicType>;
-  )",
-    document_name));
+  )", document_name));
 
   count_strings(json, string_tracker);
   string_tracker.generate_definitions();
@@ -205,8 +204,7 @@ namespace compiled_json::{}::impl {{
 
 }}
 
-#endif)",
-    last_obj_name));
+#endif)", last_obj_name));
 
   spdlog::info("{} JSON objects processed.", obj_count);
   spdlog::info("{} duplicate strings reused, saving {} string definitions.",
