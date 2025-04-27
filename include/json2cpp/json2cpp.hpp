@@ -42,12 +42,12 @@ template<typename F, typename S> struct pair
 template<typename T> struct span
 {
 private:
-  [[no_unique_address]] const T *data_{ nullptr };
-  std::size_t count_{ 0 };
+  const T *data_{ nullptr };
+  size_t count_ { 0 };
 
 public:
   template<std::size_t Size>
-  constexpr explicit span(const std::array<T, Size> &input) noexcept : data_(input.data()), count_(Size)
+  constexpr explicit span(const std::array<T, Size> &input) noexcept : data_{input.data()}, count_{Size}
   {}
 
   constexpr span() noexcept = default;
@@ -55,7 +55,6 @@ public:
   [[nodiscard]] constexpr const T *end() const noexcept { return data_ + count_; }
   [[nodiscard]] constexpr const T &operator[](std::size_t index) const { return data_[index]; }
   [[nodiscard]] constexpr std::size_t size() const noexcept { return count_; }
-  [[nodiscard]] constexpr bool empty() const noexcept { return count_ == 0; }
   [[nodiscard]] constexpr const T *data() const noexcept { return data_; }
 };
 
@@ -67,30 +66,31 @@ template<typename CharType> struct basic_json
 {
 private:
   enum class Type : uint8_t { Null, Boolean, Array, Object, Integer, UInteger, Float, String };
-  Type value_type{ Type::Null };
-
+  
   struct StringStorage
   {
     static constexpr uint8_t capacity = sizeof(std::basic_string_view<CharType>) / sizeof(CharType);
-
-    union Storage {
-      std::array<CharType, capacity> short_data;
-      std::basic_string_view<CharType> long_data;
+    
+    struct Storage {
+      union {
+        std::array<CharType, capacity> short_data;
+        std::basic_string_view<CharType> long_data;
+      };
 
       constexpr Storage() noexcept : short_data{} {}
       constexpr Storage(std::basic_string_view<CharType> v) noexcept : long_data{ v } {}
     };
-
-    size_t length = 0;
+    
     Storage storage{};
+    size_t length { 0 };
 
     constexpr StringStorage() noexcept = default;
-    constexpr StringStorage(std::basic_string_view<CharType> sv) noexcept : length{ sv.size() }
+    constexpr StringStorage(std::basic_string_view<CharType> sv) noexcept : length{sv.size()}
     {
       if (length <= capacity)
         std::copy_n(sv.begin(), length, storage.short_data.begin());
       else
-        storage = Storage{ sv };
+        storage = Storage{sv};
     }
 
     [[nodiscard]] constexpr size_t size() const noexcept { return length; }
@@ -101,18 +101,12 @@ private:
     }
   };
 
-  union {
-    bool boolean_value;
-    basic_array_t<CharType> array_value;
-    basic_object_t<CharType> object_value;
-    int64_t int_value;
-    uint64_t uint_value;
-    double float_value;
-    StringStorage string_value;
-  };
-
   struct iterator
   {
+    const void *data_ptr_{ nullptr };
+    size_t index_{ 0 };
+    Type container_type_{ Type::Null };
+
     constexpr iterator() noexcept = default;
     constexpr iterator(const void *data_ptr, size_t index = 0, Type type = Type::Null) noexcept
       : data_ptr_(data_ptr), index_(index), container_type_(type)
@@ -166,11 +160,18 @@ private:
     {
       return container_type_ == other.container_type_ && data_ptr_ == other.data_ptr_ && index_ == other.index_;
     }
+  };
 
-  private:
-    size_t index_{ 0 };
-    Type container_type_{ Type::Null };
-    [[no_unique_address]] const void *data_ptr_{ nullptr };
+  Type value_type{ Type::Null };
+  
+  union {
+    bool boolean_value;
+    basic_array_t<CharType> array_value;
+    basic_object_t<CharType> object_value;
+    int64_t int_value;
+    uint64_t uint_value;
+    double float_value;
+    StringStorage string_value;
   };
 
 public:
@@ -319,6 +320,6 @@ using json = basic_json<basicType>;
 using array_t = basic_array_t<basicType>;
 using object_t = basic_object_t<basicType>;
 using value_pair_t = basic_value_pair_t<basicType>;
-}// namespace json2cpp
+}
 
 #endif
