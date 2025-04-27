@@ -49,7 +49,7 @@ public:
   template<std::size_t Size>
   constexpr explicit span(const std::array<T, Size> &input) noexcept : data_(input.data()), count_(Size)
   {}
-  constexpr span(const T *ptr, std::size_t count) noexcept : data_(ptr), count_(count) {}
+
   constexpr span() noexcept = default;
   [[nodiscard]] constexpr const T *begin() const noexcept { return data_; }
   [[nodiscard]] constexpr const T *end() const noexcept { return data_ + count_; }
@@ -71,7 +71,7 @@ private:
 
   struct StringStorage
   {
-    static constexpr size_t capacity = sizeof(std::basic_string_view<CharType>) / sizeof(CharType);
+    static constexpr uint8_t capacity = sizeof(std::basic_string_view<CharType>) / sizeof(CharType);
 
     union Storage {
       std::array<CharType, capacity> short_data;
@@ -83,12 +83,11 @@ private:
 
     size_t length = 0;
     Storage storage{};
-    bool is_short = false;
 
     constexpr StringStorage() noexcept = default;
     constexpr StringStorage(std::basic_string_view<CharType> sv) noexcept : length{ sv.size() }
     {
-      if (is_short = (length <= capacity); is_short)
+      if (length <= capacity)
         std::copy_n(sv.begin(), length, storage.short_data.begin());
       else
         storage = Storage{ sv };
@@ -97,7 +96,8 @@ private:
     [[nodiscard]] constexpr size_t size() const noexcept { return length; }
     constexpr std::basic_string_view<CharType> get() const noexcept
     {
-      return is_short ? std::basic_string_view<CharType>{ storage.short_data.begin(), length } : storage.long_data;
+      return length <= capacity ? std::basic_string_view<CharType>{ storage.short_data.begin(), length }
+                                : storage.long_data;
     }
   };
 
@@ -130,6 +130,7 @@ private:
 
     [[nodiscard]] constexpr const basic_json *operator->() const noexcept { return &(operator*()); }
     [[nodiscard]] constexpr ssize_t index() const noexcept { return index_; }
+
     constexpr iterator &operator++() noexcept
     {
       ++index_;
@@ -200,8 +201,8 @@ public:
   [[nodiscard]] constexpr size_t size() const noexcept
   {
     if (is_object()) return object_data().size();
+    if (is_string()) return string_value.size();
     if (is_array()) return array_data().size();
-    if (value_type == Type::String) return string_value.size();
     if (is_null()) return 0;
     return 1;
   }

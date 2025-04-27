@@ -27,7 +27,6 @@ SOFTWARE.
 #include <fstream>
 #include <unordered_map>
 
-// Function to format a string for JSON output
 std::string format_json_string(const std::string &str)
 {
   bool needs_raw_string = str.find('"') != std::string::npos || str.find('\\') != std::string::npos
@@ -35,9 +34,9 @@ std::string format_json_string(const std::string &str)
                           || str.find('\t') != std::string::npos;
 
   if (needs_raw_string) {
-    return fmt::format("string_view{{RAW_PREFIX(R\"string({})string\")}}", str);
+    return fmt::format("RAW_PREFIX(R\"string({})string\")", str);
   } else {
-    return fmt::format("string_view{{RAW_PREFIX(\"{}\")}}", str);
+    return fmt::format("RAW_PREFIX(\"{}\")", str);
   }
 }
 
@@ -167,6 +166,7 @@ compile_results compile(const std::string_view document_name, const nlohmann::or
   results.hpp.emplace_back(fmt::format("#define {}_COMPILED_JSON", document_name));
   results.hpp.emplace_back("#include <json2cpp/json2cpp.hpp>");
 
+  results.hpp.emplace_back("using namespace std::literals::string_view_literals;");
   results.hpp.emplace_back(fmt::format("namespace compiled_json::{} {{", document_name));
   results.hpp.emplace_back(fmt::format("  const json2cpp::json &get();", document_name));
   results.hpp.emplace_back("}");
@@ -179,20 +179,21 @@ compile_results compile(const std::string_view document_name, const nlohmann::or
   results.impl.emplace_back(fmt::format("#define {}_COMPILED_JSON_IMPL", document_name));
   results.impl.emplace_back("#include <json2cpp/json2cpp.hpp>");
   results.impl.emplace_back(fmt::format(R"(
+using namespace std::literals::string_view_literals;
+  
 namespace compiled_json::{}::impl {{
     
   #ifdef JSON2CPP_USE_UTF16
   typedef char16_t basicType;
-  #define RAW_PREFIX(str) u"" str
+  #define RAW_PREFIX(str) u"" str ""sv
   #else
   typedef char basicType;
-  #define RAW_PREFIX(str) str
+  #define RAW_PREFIX(str) str ""sv
   #endif
     
   using json = json2cpp::basic_json<basicType>;
   using array_t = json2cpp::basic_array_t<basicType>;
   using object_t = json2cpp::basic_object_t<basicType>;
-  using string_view = std::basic_string_view<basicType>;
   using value_pair_t = json2cpp::basic_value_pair_t<basicType>;
   )",
     document_name));
