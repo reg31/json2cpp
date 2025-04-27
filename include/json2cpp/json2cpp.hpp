@@ -47,8 +47,9 @@ private:
 
 public:
   template<std::size_t Size>
-  constexpr explicit span(const std::array<T, Size> &input) noexcept : data_(input.data()), count_(Size) {}
-  
+  constexpr explicit span(const std::array<T, Size> &input) noexcept : data_(input.data()), count_(Size)
+  {}
+
   constexpr span() noexcept = default;
   [[nodiscard]] constexpr const T *begin() const noexcept { return data_; }
   [[nodiscard]] constexpr const T *end() const noexcept { return data_ + count_; }
@@ -95,7 +96,8 @@ private:
     [[nodiscard]] constexpr size_t size() const noexcept { return length; }
     constexpr std::basic_string_view<CharType> get() const noexcept
     {
-      return length <= capacity ? std::basic_string_view<CharType>{ storage.short_data.begin(), length } : storage.long_data;
+      return length <= capacity ? std::basic_string_view<CharType>{ storage.short_data.begin(), length }
+                                : storage.long_data;
     }
   };
 
@@ -113,7 +115,8 @@ private:
   {
     constexpr iterator() noexcept = default;
     constexpr iterator(const void *data_ptr, size_t index = 0, Type type = Type::Null) noexcept
-      : data_ptr_(data_ptr), index_(index), container_type_(type) {}
+      : data_ptr_(data_ptr), index_(index), container_type_(type)
+    {}
 
     [[nodiscard]] constexpr const basic_json &operator*() const
     {
@@ -127,12 +130,30 @@ private:
 
     [[nodiscard]] constexpr const basic_json *operator->() const noexcept { return &(operator*()); }
     [[nodiscard]] constexpr ssize_t index() const noexcept { return index_; }
-	
-    constexpr iterator &operator++() noexcept { ++index_; return *this; }
-    constexpr iterator &operator--() noexcept { --index_; return *this; }
-    constexpr iterator operator++(int) noexcept { iterator copy = *this; ++(*this);  return copy; }
-    constexpr iterator operator--(int) noexcept { iterator copy = *this; --(*this);  return copy; }
-	
+
+    constexpr iterator &operator++() noexcept
+    {
+      ++index_;
+      return *this;
+    }
+    constexpr iterator &operator--() noexcept
+    {
+      --index_;
+      return *this;
+    }
+    constexpr iterator operator++(int) noexcept
+    {
+      iterator copy = *this;
+      ++(*this);
+      return copy;
+    }
+    constexpr iterator operator--(int) noexcept
+    {
+      iterator copy = *this;
+      --(*this);
+      return copy;
+    }
+
     [[nodiscard]] constexpr std::basic_string_view<CharType> key() const
     {
       if (container_type_ == Type::Object) {
@@ -180,7 +201,7 @@ public:
   [[nodiscard]] constexpr size_t size() const noexcept
   {
     if (is_object()) return object_data().size();
-	if (is_string()) return string_value.size();
+    if (is_string()) return string_value.size();
     if (is_array()) return array_data().size();
     if (is_null()) return 0;
     return 1;

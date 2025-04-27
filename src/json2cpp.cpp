@@ -98,7 +98,10 @@ void count_strings(const nlohmann::ordered_json &value, StringDuplicateTracker &
   }
 }
 
-std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count, std::vector<std::string> &lines, StringDuplicateTracker &string_tracker)
+std::string compile(const nlohmann::ordered_json &value,
+  std::size_t &obj_count,
+  std::vector<std::string> &lines,
+  StringDuplicateTracker &string_tracker)
 {
   const auto current_object_number = obj_count++;
 
@@ -110,7 +113,8 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
         fmt::format("value_pair_t{{{}, {}}},", key_repr, compile(*itr, obj_count, lines, string_tracker)));
     }
 
-    lines.emplace_back(fmt::format("inline constexpr std::array<value_pair_t, {}> object_data_{} = {{", pairs.size(), current_object_number));
+    lines.emplace_back(fmt::format(
+      "inline constexpr std::array<value_pair_t, {}> object_data_{} = {{", pairs.size(), current_object_number));
 
     std::transform(pairs.begin(), pairs.end(), std::back_inserter(lines), [](const auto &pair) {
       return fmt::format("  {}", pair);
@@ -125,7 +129,8 @@ std::string compile(const nlohmann::ordered_json &value, std::size_t &obj_count,
       return fmt::format("{{{}}},", compile(child, obj_count, lines, string_tracker));
     });
 
-    lines.emplace_back(fmt::format("inline constexpr std::array<json, {}> object_data_{} = {{{{", entries.size(), current_object_number));
+    lines.emplace_back(fmt::format(
+      "inline constexpr std::array<json, {}> object_data_{} = {{{{", entries.size(), current_object_number));
 
     std::transform(entries.begin(), entries.end(), std::back_inserter(lines), [](const auto &entry) {
       return fmt::format("  {}", entry);
@@ -160,7 +165,7 @@ compile_results compile(const std::string_view document_name, const nlohmann::or
   results.hpp.emplace_back(fmt::format("#ifndef {}_COMPILED_JSON", document_name));
   results.hpp.emplace_back(fmt::format("#define {}_COMPILED_JSON", document_name));
   results.hpp.emplace_back("#include <json2cpp/json2cpp.hpp>");
-  
+
   results.hpp.emplace_back("using namespace std::literals::string_view_literals;");
   results.hpp.emplace_back(fmt::format("namespace compiled_json::{} {{", document_name));
   results.hpp.emplace_back(fmt::format("  const json2cpp::json &get();", document_name));
@@ -168,7 +173,8 @@ compile_results compile(const std::string_view document_name, const nlohmann::or
 
   results.hpp.emplace_back("#endif");
 
-  results.impl.emplace_back(fmt::format("// Just in case the user wants to use the entire document in a constexpr context, it can be included safely"));
+  results.impl.emplace_back(fmt::format(
+    "// Just in case the user wants to use the entire document in a constexpr context, it can be included safely"));
   results.impl.emplace_back(fmt::format("#ifndef {}_COMPILED_JSON_IMPL", document_name));
   results.impl.emplace_back(fmt::format("#define {}_COMPILED_JSON_IMPL", document_name));
   results.impl.emplace_back("#include <json2cpp/json2cpp.hpp>");
@@ -189,7 +195,8 @@ namespace compiled_json::{}::impl {{
   using array_t = json2cpp::basic_array_t<basicType>;
   using object_t = json2cpp::basic_object_t<basicType>;
   using value_pair_t = json2cpp::basic_value_pair_t<basicType>;
-  )", document_name));
+  )",
+    document_name));
 
   count_strings(json, string_tracker);
   string_tracker.generate_definitions();
@@ -204,7 +211,8 @@ namespace compiled_json::{}::impl {{
 
 }}
 
-#endif)", last_obj_name));
+#endif)",
+    last_obj_name));
 
   spdlog::info("{} JSON objects processed.", obj_count);
   spdlog::info("{} duplicate strings reused, saving {} string definitions.",
@@ -226,7 +234,9 @@ compile_results compile(const std::string_view document_name, const std::filesys
   return compile(document_name, document);
 }
 
-void write_compilation([[maybe_unused]] std::string_view document_name, const compile_results &results, const std::filesystem::path &base_output)
+void write_compilation([[maybe_unused]] std::string_view document_name,
+  const compile_results &results,
+  const std::filesystem::path &base_output)
 {
   const auto append_extension = [](std::filesystem::path name, std::string_view ext) { return name += ext; };
   const auto hpp_name = append_extension(base_output, ".hpp");
@@ -241,15 +251,22 @@ void write_compilation([[maybe_unused]] std::string_view document_name, const co
 
   std::ofstream cpp(cpp_name);
   cpp << fmt::format("#include \"{}\"\n", impl_name.filename().string());
-  cpp << fmt::format("namespace compiled_json::{} {{\nconst json2cpp::json &get() {{ return compiled_json::{}::impl::document; }}\n}}\n", document_name, document_name);
+  cpp << fmt::format(
+    "namespace compiled_json::{} {{\nconst json2cpp::json &get() {{ return compiled_json::{}::impl::document; }}\n}}\n",
+    document_name,
+    document_name);
 }
 
-void compile_to(const std::string_view document_name, const nlohmann::ordered_json &json, const std::filesystem::path &base_output)
+void compile_to(const std::string_view document_name,
+  const nlohmann::ordered_json &json,
+  const std::filesystem::path &base_output)
 {
   write_compilation(document_name, compile(document_name, json), base_output);
 }
 
-void compile_to(const std::string_view document_name, const std::filesystem::path &filename, const std::filesystem::path &base_output)
+void compile_to(const std::string_view document_name,
+  const std::filesystem::path &filename,
+  const std::filesystem::path &base_output)
 {
   write_compilation(document_name, compile(document_name, filename), base_output);
 }
