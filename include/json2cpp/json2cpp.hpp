@@ -94,8 +94,8 @@ private:
         storage = Storage{ sv };
     }
 
-    [[nodiscard]] constexpr size_t size() const noexcept { return length; }
-    constexpr std::basic_string_view<CharType> get() const noexcept
+    [[nodiscard]] inline constexpr size_t size() const noexcept { return length; }
+    [[nodiscard]] inline constexpr std::basic_string_view<CharType> get() const noexcept
     {
       return length <= capacity ? std::basic_string_view<CharType>{ storage.short_data.begin(), length }
                                 : storage.long_data;
