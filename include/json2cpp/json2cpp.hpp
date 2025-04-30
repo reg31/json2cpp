@@ -46,11 +46,11 @@ template<typename T> struct span
 {
 private:
   const T *data_{ nullptr };
-  size_t count_ { 0 };
+  size_t count_{ 0 };
 
 public:
   template<std::size_t Size>
-  constexpr explicit span(const std::array<T, Size> &input) noexcept : data_{input.data()}, count_{Size}
+  constexpr explicit span(const std::array<T, Size> &input) noexcept : data_{ input.data() }, count_{ Size }
   {}
 
   constexpr span() noexcept = default;
@@ -106,14 +106,14 @@ private:
   private:
     enum class Kind : uint8_t { None, Array, Object };
 
-    Kind kind{Kind::None};
+    Kind kind{ Kind::None };
     union Storage {
       constexpr Storage() noexcept : default_ptr{} {}
-      constexpr Storage(const basic_json<CharType>* it) noexcept : arr_it{it} {}
-      constexpr Storage(const basic_value_pair_t<CharType>* it) noexcept : obj_it{it} {}
+      constexpr Storage(const basic_json<CharType> *it) noexcept : arr_it{ it } {}
+      constexpr Storage(const basic_value_pair_t<CharType> *it) noexcept : obj_it{ it } {}
 
-      const basic_json<CharType>* arr_it;
-      const basic_value_pair_t<CharType>* obj_it;
+      const basic_json<CharType> *arr_it;
+      const basic_value_pair_t<CharType> *obj_it;
       std::nullptr_t default_ptr;
     } storage;
 
@@ -121,18 +121,17 @@ private:
     using iterator_category = std::forward_iterator_tag;
     using difference_type = std::ptrdiff_t;
     using value_type = basic_json<CharType>;
-    using pointer = const basic_json<CharType>*;
-    using reference = const basic_json<CharType>&;
+    using pointer = const basic_json<CharType> *;
+    using reference = const basic_json<CharType> &;
 
     constexpr iterator() noexcept = default;
 
-    constexpr explicit iterator(const basic_json<CharType>* it) noexcept
-      : kind(Kind::Array), storage(it) {}
+    constexpr explicit iterator(const basic_json<CharType> *it) noexcept : kind(Kind::Array), storage(it) {}
 
-    constexpr explicit iterator(const basic_value_pair_t<CharType>* it) noexcept
-      : kind(Kind::Object), storage(it) {}
+    constexpr explicit iterator(const basic_value_pair_t<CharType> *it) noexcept : kind(Kind::Object), storage(it) {}
 
-    constexpr reference operator*() const {
+    constexpr reference operator*() const
+    {
       if (kind == Kind::Array) return *storage.arr_it;
       if (kind == Kind::Object) return storage.obj_it->second;
       throw std::runtime_error("Invalid iterator");
@@ -140,7 +139,8 @@ private:
 
     constexpr pointer operator->() const { return &(operator*()); }
 
-    constexpr iterator& operator++() noexcept {
+    constexpr iterator &operator++() noexcept
+    {
       if (kind == Kind::Array) {
         ++storage.arr_it;
       } else if (kind == Kind::Object) {
@@ -149,26 +149,26 @@ private:
       return *this;
     }
 
-    constexpr iterator operator++(int) noexcept {
+    constexpr iterator operator++(int) noexcept
+    {
       iterator tmp = *this;
       ++(*this);
       return tmp;
     }
 
-    constexpr bool operator==(const iterator& other) const noexcept {
+    constexpr bool operator==(const iterator &other) const noexcept
+    {
       if (kind != other.kind) return false;
       if (kind == Kind::Array) return storage.arr_it == other.storage.arr_it;
       if (kind == Kind::Object) return storage.obj_it == other.storage.obj_it;
       return true;
     }
 
-    constexpr bool operator!=(const iterator& other) const noexcept {
-      return !(*this == other);
-    }
+    constexpr bool operator!=(const iterator &other) const noexcept { return !(*this == other); }
 
-    constexpr std::basic_string_view<CharType> key() const {
-      if (kind != Kind::Object)
-        throw std::runtime_error("Iterator does not refer to an object element");
+    constexpr std::basic_string_view<CharType> key() const
+    {
+      if (kind != Kind::Object) throw std::runtime_error("Iterator does not refer to an object element");
       return storage.obj_it->first;
     }
   };
@@ -238,8 +238,8 @@ public:
   [[nodiscard]] constexpr iterator find(const std::basic_string_view<CharType> &key) const noexcept
   {
     if (is_object()) {
-      const auto& obj_data = object_value;
-      auto it = std::find_if(obj_data.begin(), obj_data.end(), [&key](const auto& pair){ return pair.first == key; });
+      const auto &obj_data = object_value;
+      auto it = std::find_if(obj_data.begin(), obj_data.end(), [&key](const auto &pair) { return pair.first == key; });
       if (it != obj_data.end()) return iterator{ it };
     }
     return end();
@@ -268,9 +268,7 @@ public:
   [[nodiscard]] constexpr const basic_json &at(const std::basic_string_view<CharType> &key) const
   {
     auto it = find(key);
-    if (it == end()) {
-      throw std::out_of_range("Key not found");
-    }
+    if (it == end()) { throw std::out_of_range("Key not found"); }
     return *it;
   }
 
@@ -287,14 +285,14 @@ public:
 
   template<typename ValueType> [[nodiscard]] constexpr ValueType get() const
   {
-	if constexpr (std::is_same_v<ValueType, bool>) {
+    if constexpr (std::is_same_v<ValueType, bool>) {
       if (is_boolean()) return boolean_value;
       throw std::runtime_error("JSON value is not a boolean");
     } else if constexpr (std::is_arithmetic_v<ValueType>) {
-        if (is_uinteger()) return static_cast<ValueType>(uint_value);
-        if (is_integer()) return static_cast<ValueType>(int_value);
-        if (is_float()) return static_cast<ValueType>(float_value);
-        throw std::runtime_error("JSON value is not a number");
+      if (is_uinteger()) return static_cast<ValueType>(uint_value);
+      if (is_integer()) return static_cast<ValueType>(int_value);
+      if (is_float()) return static_cast<ValueType>(float_value);
+      throw std::runtime_error("JSON value is not a number");
     } else if constexpr (std::is_same_v<ValueType, std::basic_string_view<CharType>>) {
       return string_data();
     } else if constexpr (std::is_same_v<ValueType, std::nullptr_t>) {
