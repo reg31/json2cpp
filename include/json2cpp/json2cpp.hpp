@@ -258,11 +258,12 @@ public:
     return string_value.get();
   }
 
-  [[nodiscard]] constexpr const basic_json &operator[](size_t idx) const {
-	if (!is_array()) throw std::runtime_error("Not an array");
+  [[nodiscard]] constexpr const basic_json &operator[](size_t idx) const
+  {
+    if (!is_array()) throw std::runtime_error("Not an array");
     return array_data()[idx];
   }
-  
+
   [[nodiscard]] constexpr const basic_json &at(const std::basic_string_view<CharType> &key) const
   {
     auto it = find(key);
