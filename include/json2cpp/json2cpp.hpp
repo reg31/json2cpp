@@ -305,8 +305,6 @@ public:
       throw std::runtime_error("Unsupported type requested");
     }
   }
-
-  friend struct iterator;
 };
 
 #ifdef JSON2CPP_USE_UTF16
