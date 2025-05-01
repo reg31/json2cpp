@@ -118,16 +118,12 @@ private:
     } storage;
 
   public:
-    using iterator_category = std::forward_iterator_tag;
-    using difference_type = std::ptrdiff_t;
     using value_type = basic_json<CharType>;
     using pointer = const basic_json<CharType> *;
     using reference = const basic_json<CharType> &;
 
     constexpr iterator() noexcept = default;
-
     constexpr explicit iterator(const basic_json<CharType> *it) noexcept : kind(Kind::Array), storage(it) {}
-
     constexpr explicit iterator(const basic_value_pair_t<CharType> *it) noexcept : kind(Kind::Object), storage(it) {}
 
     constexpr reference operator*() const
@@ -234,7 +230,6 @@ public:
     return iterator{};
   }
 
-
   [[nodiscard]] constexpr iterator find(const std::basic_string_view<CharType> &key) const noexcept
   {
     if (is_object()) {
@@ -257,14 +252,17 @@ public:
     return object_value;
   }
 
-  [[nodiscard]] constexpr std::basic_string_view<CharType> string_data() const
+  [[nodiscard]] constexpr std::basic_string_view<CharType> getString() const
   {
     if (!is_string()) throw std::runtime_error("Not a string");
     return string_value.get();
   }
 
-  [[nodiscard]] constexpr const basic_json &operator[](size_t idx) const { return array_data()[idx]; }
-
+  [[nodiscard]] constexpr const basic_json &operator[](size_t idx) const {
+	if (!is_array()) throw std::runtime_error("Not an array");
+    return array_data()[idx];
+  }
+  
   [[nodiscard]] constexpr const basic_json &at(const std::basic_string_view<CharType> &key) const
   {
     auto it = find(key);
@@ -294,7 +292,7 @@ public:
       if (is_float()) return static_cast<ValueType>(float_value);
       throw std::runtime_error("JSON value is not a number");
     } else if constexpr (std::is_same_v<ValueType, std::basic_string_view<CharType>>) {
-      return string_data();
+      return getString();
     } else if constexpr (std::is_same_v<ValueType, std::nullptr_t>) {
       if (is_null()) return nullptr;
       throw std::runtime_error("JSON value is not null");
