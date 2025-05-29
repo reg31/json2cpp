@@ -28,7 +28,6 @@ SOFTWARE.
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <span>
 #include <stdexcept>
 #include <string_view>
 
