@@ -247,7 +247,6 @@ public:
     return string_value.get();
   }
 
-  // Generic getter template
   template<typename ValueType> 
   constexpr ValueType get() const {
     if constexpr (std::is_same_v<ValueType, bool>) {
