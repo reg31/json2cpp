@@ -1,85 +1,121 @@
-name: ci
-
-on:
-  pull_request:
-  release:
-    types: [published]
-  push:
-    tags:
-    branches:
-      - main
-      - develop
-
-env:
-  VERBOSE: 1
+name: Build json2cpp
+on: workflow_dispatch
 
 jobs:
-  Release:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-        compiler:
-          - clang
-        build_type:
-          - Release
-        package_generator:
-          - TBZ2
-          - ZIP
-
+  build-ubuntu:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Clang (Ubuntu)
-        if: runner.os == 'Linux'
+      
+      - name: Set up Clang
         run: |
           sudo apt-get update
           sudo apt-get install -y clang ninja-build
+      
+      - name: Configure CMake
+        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+      
+      - name: Build
+        run: cmake --build ./build --config Release
+      
+      - name: CPack TBZ2
+        working-directory: ./build
+        run: cpack -C Release -G TBZ2
+      
+      - name: CPack ZIP
+        working-directory: ./build
+        run: cpack -C Release -G ZIP
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: json2cpp-ubuntu
+          path: build/*-*Release*-*.*
 
-      - name: Set up Clang (macOS)
-        if: runner.os == 'macOS'
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Clang
         run: |
           brew install llvm ninja
           echo "/opt/homebrew/opt/llvm/bin" >>$GITHUB_PATH
+      
+      - name: Configure CMake
+        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+      
+      - name: Build
+        run: cmake --build ./build --config Release
+      
+      - name: CPack TBZ2
+        working-directory: ./build
+        run: cpack -C Release -G TBZ2
+      
+      - name: CPack ZIP
+        working-directory: ./build
+        run: cpack -C Release -G ZIP
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: json2cpp-macos
+          path: build/*-*Release*-*.*
 
-      - name: Set up msvc (Windows)
-        if: runner.os == 'Windows'
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1.13.0
         with:
           arch: x64
-
-      - name: Configure CMake (Windows)
-        if: runner.os == 'Windows'
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }}
-
-      - name: Configure CMake (other systems)
-        if: runner.os != 'Windows'
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}} -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-
+      
+      - name: Configure CMake
+        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }}
+      
       - name: Build
-        run: cmake --build ./build --config ${{matrix.build_type}}
-
-      - name: CPack
-        if: matrix.package_generator != ''
+        run: cmake --build ./build --config Release
+      
+      - name: CPack TBZ2
         working-directory: ./build
-        run: |
-          cpack -C ${{matrix.build_type}} -G ${{matrix.package_generator}}
+        run: cpack -C Release -G TBZ2
+      
+      - name: CPack ZIP
+        working-directory: ./build
+        run: cpack -C Release -G ZIP
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: json2cpp-windows
+          path: build/*-*Release*-*.*
 
+  release:
+    needs: [build-ubuntu, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: json2cpp-builds
+      
       - name: Publish Snapshot Release
         uses: softprops/action-gh-release@v2
-        if: ${{ (github.ref == 'refs/heads/main') && matrix.package_generator != '' }}
+        if: ${{ github.ref == 'refs/heads/main' }}
         with:
           tag_name: "snapshot-${{ github.sha }}"
           files: |
-            build/*-*${{ matrix.build_type }}*-*.*
-
+            json2cpp-builds/json2cpp-ubuntu/*-*Release*-*.*
+            json2cpp-builds/json2cpp-macos/*-*Release*-*.*
+            json2cpp-builds/json2cpp-windows/*-*Release*-*.*
+      
       - name: Publish Tagged Release
         uses: softprops/action-gh-release@v2
-        if: ${{ startsWith(github.ref, 'refs/tags/') && matrix.package_generator != '' }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           files: |
-            build/*-*${{ matrix.build_type }}*-*.*
+            json2cpp-builds/json2cpp-ubuntu/*-*Release*-*.*
+            json2cpp-builds/json2cpp-macos/*-*Release*-*.*
+            json2cpp-builds/json2cpp-windows/*-*Release*-*.*
