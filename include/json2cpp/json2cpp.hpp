@@ -41,7 +41,7 @@ struct pair {
   [[no_unique_address]] S second;
 };
 
-template<typename T> 
+template<typename T>
 struct span {
   const T *data_{ nullptr };
   size_t count_{ 0 };
@@ -51,7 +51,6 @@ struct span {
     : data_{ input.data() }, count_{ Size } {}
   
   constexpr span() noexcept = default;
-  constexpr span(const T* ptr, size_t count) noexcept : data_{ptr}, count_{count} {}
   
   constexpr const T *begin() const noexcept { return data_; }
   constexpr const T *end() const noexcept { return data_ + count_; }
@@ -61,22 +60,9 @@ struct span {
 };
 
 template<typename CharType> 
-using basic_value_pair_t = pair<std::basic_string_view<CharType>, basic_json<CharType>>;
-template<typename CharType> 
-using basic_object_t = span<basic_value_pair_t<CharType>>;
-template<typename CharType> 
-using basic_array_t = span<basic_json<CharType>>;
-
-template<typename CharType> 
-struct basic_json {
-private:
-  enum class Type : uint8_t { 
-    Null, Boolean, Array, Object, Integer, UInteger, Float, String 
-  };
-
   struct StringStorage {
-    static constexpr size_t capacity = sizeof(const CharType*) / sizeof(CharType);
-    
+	static constexpr size_t capacity = sizeof(CharType*) / sizeof(CharType);
+	
     union {
       std::array<CharType, capacity> short_data{};
       const CharType* long_data;
@@ -102,6 +88,15 @@ private:
     constexpr size_t size() const noexcept { return length; }
   };
 
+template<typename CharType> 
+using basic_value_pair_t = pair<std::basic_string_view<CharType>, basic_json<CharType>>;
+template<typename CharType> 
+using basic_object_t = span<basic_value_pair_t<CharType>>;
+template<typename CharType> 
+using basic_array_t = span<basic_json<CharType>>;
+
+template<typename CharType> 
+struct basic_json {
   struct iterator {
     enum class Kind : uint8_t { Array, Object };
     Kind kind;
@@ -141,7 +136,12 @@ private:
       return obj_it->first;
     }
   };
-
+  
+  private:
+  enum class Type : uint8_t { 
+    Null, Boolean, Array, Object, Integer, UInteger, Float, String 
+  };
+  
   Type value_type{ Type::Null };
   
   union {
@@ -151,7 +151,7 @@ private:
     int64_t int_value;
     uint64_t uint_value;
     double float_value;
-    StringStorage string_value;
+    StringStorage<CharType> string_value;
   };
 
 public:
@@ -164,6 +164,7 @@ public:
   constexpr basic_json(uint64_t v) noexcept : value_type(Type::UInteger), uint_value{v} {}
   constexpr basic_json(double v) noexcept : value_type(Type::Float), float_value{v} {}
   constexpr basic_json(std::basic_string_view<CharType> v) noexcept : value_type(Type::String), string_value(v) {}
+  
   constexpr bool is_object() const noexcept { return value_type == Type::Object; }
   constexpr bool is_array() const noexcept { return value_type == Type::Array; }
   constexpr bool is_string() const noexcept { return value_type == Type::String; }
@@ -202,7 +203,7 @@ public:
     return iterator{static_cast<const basic_json<CharType>*>(nullptr)};
   }
 
-  constexpr iterator find(const std::basic_string_view<CharType> &key) const noexcept {
+  constexpr iterator find(std::basic_string_view<CharType> key) const noexcept {
     if (!is_object()) return end();
     
     for (auto it = object_value.begin(); it != object_value.end(); ++it) {
@@ -216,18 +217,17 @@ public:
     return array_value[idx];
   }
 
-  constexpr const basic_json &at(const std::basic_string_view<CharType> &key) const {
+  constexpr const basic_json &at(std::basic_string_view<CharType> key) const {
     auto it = find(key);
     if (it == end()) throw std::out_of_range("Key not found");
     return *it;
   }
 
-  constexpr const basic_json &operator[](const std::basic_string_view<CharType> &key) const {
+  constexpr const basic_json &operator[](std::basic_string_view<CharType> key) const {
     return at(key);
   }
 
-  template<typename Key> 
-  constexpr bool contains(const Key &key) const noexcept {
+  constexpr bool contains(std::basic_string_view<CharType> key) const noexcept {
     if (!is_object()) return false;
     return find(key) != end();
   }
