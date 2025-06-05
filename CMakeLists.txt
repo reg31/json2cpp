@@ -17,7 +17,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 # Set the project name and language
 project(
   json2cpp
-  VERSION 2.6
+  VERSION 2.7
   DESCRIPTION ""
   HOMEPAGE_URL "%%myurl%%"
   LANGUAGES CXX C)
