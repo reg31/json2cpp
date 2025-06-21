@@ -1,27 +1,3 @@
-/*
-MIT License
-
-Copyright (c) 2025 Jason Turner, Regis Duflaut-Averty
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 #ifndef CONSTEXPR_JSON_HPP_INCLUDED
 #define CONSTEXPR_JSON_HPP_INCLUDED
 
@@ -30,6 +6,7 @@ SOFTWARE.
 #include <cstdint>
 #include <stdexcept>
 #include <string_view>
+#include <span>
 
 namespace json2cpp {
 
@@ -41,151 +18,76 @@ template<typename F, typename S> struct pair
     [[no_unique_address]] S second;
 };
 
-template<typename T> struct span
-{
-private:
-    const T *ptr = nullptr;
-    size_t length = 0;
-    
-public:
-    template<std::size_t Size>
-    constexpr explicit span(const std::array<T, Size> &input) noexcept : ptr{ input.data() }, length{ Size }
-    {}
-
-    constexpr span() noexcept = default;
-
-    constexpr const T *begin() const noexcept { return ptr; }
-    constexpr const T *end() const noexcept { return ptr + length; }
-    constexpr const T &operator[](std::size_t index) const { return ptr[index]; }
-    constexpr std::size_t size() const noexcept { return length; }
-    constexpr const T *data() const noexcept { return ptr; }
-};
-
-template<typename CharType> struct StringStorage
-{
-private:
-    static constexpr size_t capacity = sizeof(CharType *) / sizeof(CharType);
-
-    union {
-        std::array<CharType, capacity> short_data{};
-        const CharType *long_data;
-    };
-
-    size_t length = 0;
-    
-public:
-    constexpr StringStorage() noexcept = default;
-    constexpr StringStorage(std::basic_string_view<CharType> sv) noexcept : length{ sv.size() }
-    {
-        if (length <= capacity) {
-            std::copy_n(sv.begin(), length, short_data.begin());
-        } else {
-            long_data = sv.data();
-        }
-    }
-
-    inline constexpr std::basic_string_view<CharType> string_view() const noexcept
-    {
-        return std::basic_string_view<CharType>{ data(), length };
-    }
-    
-    constexpr const CharType *data() const noexcept
-    {
-        return length <= capacity ? short_data.data() : long_data;
-    }
-    
-    constexpr operator std::basic_string_view<CharType>() const noexcept { return string_view(); }
-    
-    constexpr bool operator==(std::basic_string_view<CharType> other) const noexcept
-    {
-        if (size() != other.size()) {
-            return false;
-        }
-        return string_view() == other;
-    }
-
-    constexpr size_t size() const noexcept { return length; }
-};
-
-template<typename CharType> using basic_value_pair_t = pair<StringStorage<CharType>, basic_json<CharType>>;
-template<typename CharType> using basic_object_t = span<basic_value_pair_t<CharType>>;
-template<typename CharType> using basic_array_t = span<basic_json<CharType>>;
+template<typename CharType> using basic_value_pair_t = pair<basic_json<CharType>, basic_json<CharType>>;
+template<typename CharType> using basic_object_t = std::span<const basic_value_pair_t<CharType>>;
+template<typename CharType> using basic_array_t = std::span<const basic_json<CharType>>;
 
 template<typename CharType> struct basic_json
 {
-    struct iterator
-    {
-    private:
-        enum class Kind : uint8_t { Array, Object };
-        Kind kind;
-        union {
-            const basic_json<CharType> *arr_it;
-            const basic_value_pair_t<CharType> *obj_it;
-        };
-
-    public:
-        constexpr const basic_json<CharType> *operator->() const { return &(operator*()); }
-        constexpr iterator(const basic_json<CharType> *it) noexcept : kind(Kind::Array), arr_it(it) {}
-        constexpr iterator(const basic_value_pair_t<CharType> *it) noexcept : kind(Kind::Object), obj_it(it) {}
-        constexpr const basic_json<CharType> &operator*() const { return kind == Kind::Array ? *arr_it : obj_it->second; }
-
-        constexpr iterator &operator++() noexcept
-        {
-            if (kind == Kind::Array)
-                ++arr_it;
-            else
-                ++obj_it;
-            return *this;
-        }
-
-        constexpr bool operator==(const iterator &other) const noexcept
-        {
-            return kind == other.kind && (kind == Kind::Array ? arr_it == other.arr_it : obj_it == other.obj_it);
-        }
-
-        constexpr bool operator!=(const iterator &other) const noexcept { return !(*this == other); }
-
-        constexpr std::basic_string_view<CharType> key() const
-        {
-            if (kind != Kind::Object) throw std::runtime_error("Not an object iterator");
-            return obj_it->first;
-        }
-    };
-
 private:
     enum class Type : uint8_t { Null, Boolean, Array, Object, Integer, UInteger, Float, String };
 
-    Type value_type{ Type::Null };
+    static constexpr size_t TYPE_SHIFT = sizeof(size_t) * 8 - 4;
+    static constexpr size_t LENGTH_MASK = (1ULL << TYPE_SHIFT) - 1;
+	static constexpr size_t capacity = sizeof(CharType*) / sizeof(CharType);
 
-    union {
-        basic_array_t<CharType> array_value;
-        basic_object_t<CharType> object_value;
-        StringStorage<CharType> string_value;
+    size_t type_and_length_ = 0;
+    
+    union Data {
+        const basic_json<CharType> *array_value;
+        const basic_value_pair_t<CharType> *object_value;
+		std::array<CharType, capacity> short_data{};
+		const CharType* long_data;
         int64_t int_value;
         uint64_t uint_value;
         double float_value;
         bool boolean_value;
-    };
+    } data_;
+
+    constexpr void set_type_and_length(Type t, size_t len) noexcept {
+        type_and_length_ = (static_cast<size_t>(t) << TYPE_SHIFT) | (len & LENGTH_MASK);
+    }
+
+    constexpr Type type() const noexcept { return static_cast<Type>(type_and_length_ >> TYPE_SHIFT); }
+    constexpr size_t length() const noexcept { return type_and_length_ & LENGTH_MASK; }
+
+    constexpr const CharType* string_data() const noexcept
+    {
+        return length() <= capacity ? data_.short_data.data() : data_.long_data;
+    }
+
+    constexpr basic_array_t<CharType> array_data() const { return { data_.array_value, length() }; }
+    constexpr basic_object_t<CharType> object_data() const { return { data_.object_value, length() }; }
 
 public:
-    constexpr basic_json() noexcept = default;
-    constexpr basic_json(std::nullptr_t) noexcept : value_type(Type::Null) {}
-    constexpr basic_json(bool v) noexcept : value_type(Type::Boolean), boolean_value{ v } {}
-    constexpr basic_json(basic_array_t<CharType> v) noexcept : value_type(Type::Array), array_value{ v } {}
-    constexpr basic_json(basic_object_t<CharType> v) noexcept : value_type(Type::Object), object_value{ v } {}
-    constexpr basic_json(int64_t v) noexcept : value_type(Type::Integer), int_value{ v } {}
-    constexpr basic_json(uint64_t v) noexcept : value_type(Type::UInteger), uint_value{ v } {}
-    constexpr basic_json(double v) noexcept : value_type(Type::Float), float_value{ v } {}
-    constexpr basic_json(std::basic_string_view<CharType> v) noexcept : value_type(Type::String), string_value(v) {}
+    constexpr basic_json() noexcept { set_type_and_length(Type::Null, 0); }
+	constexpr basic_json(std::nullptr_t) noexcept { set_type_and_length(Type::Null, 0); }
+    constexpr basic_json(bool v) noexcept : data_{ .boolean_value = v } { set_type_and_length(Type::Boolean, 0); }
+    constexpr basic_json(basic_array_t<CharType> v) noexcept : data_{ .array_value = v.data() } { set_type_and_length(Type::Array, v.size()); }
+    constexpr basic_json(basic_object_t<CharType> v) noexcept : data_{ .object_value = v.data() } { set_type_and_length(Type::Object, v.size()); }
+    constexpr basic_json(int64_t v) noexcept : data_{ .int_value = v } { set_type_and_length(Type::Integer, 0); }
+    constexpr basic_json(uint64_t v) noexcept : data_{ .uint_value = v } { set_type_and_length(Type::UInteger, 0); }
+    constexpr basic_json(double v) noexcept : data_{ .float_value = v } { set_type_and_length(Type::Float, 0); }
+    constexpr basic_json(std::basic_string_view<CharType> v) noexcept
+    {
+        const size_t len = v.size();
+		set_type_and_length(Type::String, len);
+		
+        if (len <= capacity) {
+            std::copy_n(v.begin(), len, data_.short_data.begin());
+        } else {
+            data_.long_data = v.data();
+        }
+    }
 
-    constexpr bool is_object() const noexcept { return value_type == Type::Object; }
-    constexpr bool is_array() const noexcept { return value_type == Type::Array; }
-    constexpr bool is_string() const noexcept { return value_type == Type::String; }
-    constexpr bool is_uinteger() const noexcept { return value_type == Type::UInteger; }
-    constexpr bool is_integer() const noexcept { return value_type == Type::Integer; }
-    constexpr bool is_float() const noexcept { return value_type == Type::Float; }
-    constexpr bool is_boolean() const noexcept { return value_type == Type::Boolean; }
-    constexpr bool is_null() const noexcept { return value_type == Type::Null; }
+    constexpr bool is_object() const noexcept { return type() == Type::Object; }
+    constexpr bool is_array() const noexcept { return type() == Type::Array; }
+    constexpr bool is_string() const noexcept { return type() == Type::String; }
+    constexpr bool is_uinteger() const noexcept { return type() == Type::UInteger; }
+    constexpr bool is_integer() const noexcept { return type() == Type::Integer; }
+    constexpr bool is_float() const noexcept { return type() == Type::Float; }
+    constexpr bool is_boolean() const noexcept { return type() == Type::Boolean; }
+    constexpr bool is_null() const noexcept { return type() == Type::Null; }
     constexpr bool is_number_integer() const noexcept { return is_integer() || is_uinteger(); }
     constexpr bool is_number_float() const noexcept { return is_float(); }
     constexpr bool is_number() const noexcept { return is_number_integer() || is_number_float(); }
@@ -194,108 +96,89 @@ public:
 
     constexpr size_t size() const noexcept
     {
-        switch (value_type) {
-        case Type::Object:
-            return object_value.size();
-        case Type::Array:
-            return array_value.size();
-        case Type::String:
-            return string_value.size();
-        case Type::Null:
-            return 0;
-        default:
-            return 1;
+        if (is_structured() || is_string()) return length();
+        return type() == Type::Null ? 0 : 1;
+    }
+    constexpr bool empty() const noexcept { return size() == 0; }  
+	constexpr const basic_json &operator[](std::basic_string_view<CharType> key) const { return at(key); }
+    constexpr const basic_json &operator[](size_t index) const
+	{
+        if (is_array()) {
+            if (index >= length() || index < 0) { throw std::out_of_range("Array index out of range"); }
+            return array_data()[index];
         }
-    }
-
-    constexpr bool empty() const noexcept { return size() == 0; }
-
-    constexpr iterator begin() const noexcept
-    {
-        if (is_array()) return iterator{ array_value.begin() };
-        if (is_object()) return iterator{ object_value.begin() };
-        return iterator{ static_cast<const basic_json<CharType> *>(nullptr) };
-    }
-
-    constexpr iterator end() const noexcept
-    {
-        if (is_array()) return iterator{ array_value.end() };
-        if (is_object()) return iterator{ object_value.end() };
-        return iterator{ static_cast<const basic_json<CharType> *>(nullptr) };
-    }
-
-    constexpr iterator find(std::basic_string_view<CharType> key) const noexcept
-    {
-        if (!is_object()) return end();
-
-        for (auto it = object_value.begin(); it != object_value.end(); ++it) {
-            if (it->first == key) return iterator{ it };
+        if (is_object()) {
+            if (index >= length() || index < 0) { throw std::out_of_range("Object item index out of range"); }
+            return object_data()[index].second;
         }
-        return end();
+        throw std::runtime_error("JSON value is not a container (array or object)");
+	}
+    
+    constexpr bool operator==(std::basic_string_view<CharType> other) const noexcept
+    {
+        if (!is_string()) { return false; }
+        return std::basic_string_view<CharType>(string_data(), length()) == other;
+    }
+	
+	constexpr const basic_json &at(std::basic_string_view<CharType> key) const
+    {
+        if (!is_object()) { throw std::runtime_error("JSON value is not an object"); }
+        if (const auto* val = find(key)) { return *val; }
+        throw std::out_of_range("Key not found");
     }
 
-    constexpr const basic_json &operator[](size_t idx) const
+    constexpr const basic_json* find(std::basic_string_view<CharType> key) const noexcept
     {
-        if (!is_array()) throw std::runtime_error("Not an array");
-        return array_value[idx];
+        if (!is_object()) return nullptr;
+        auto obj = object_data();
+        auto it = std::find_if(obj.begin(), obj.end(), [key](const auto& pair){ return pair.first == key; });
+        return it != obj.end() ? &(it->second) : nullptr;
     }
 
-    constexpr const basic_json &at(std::basic_string_view<CharType> key) const
-    {
-        auto it = find(key);
-        if (it == end()) throw std::out_of_range("Key not found");
-        return *it;
-    }
+    constexpr bool contains(std::basic_string_view<CharType> key) const noexcept { return find(key) != nullptr; }
+    constexpr basic_object_t<CharType> items() const {
+		if (!is_object()) throw std::runtime_error("JSON value is not an object");
+		return object_data(); 
+	}
+	
+	constexpr auto begin() const {
+		if (!is_array()) throw std::runtime_error("JSON value is not an array");
+		return array_data().begin();
+	}
+	constexpr auto end() const {
+		if (!is_array()) throw std::runtime_error("JSON value is not an array");
+		return array_data().end();
+	}
 
-    constexpr const basic_json &operator[](std::basic_string_view<CharType> key) const { return at(key); }
-
-    constexpr bool contains(std::basic_string_view<CharType> key) const noexcept
-    {
-        if (!is_object()) return false;
-        return find(key) != end();
-    }
-
-    constexpr const basic_array_t<CharType> &array_data() const
-    {
-        if (!is_array()) throw std::runtime_error("Not an array");
-        return array_value;
-    }
-
-    constexpr const basic_object_t<CharType> &object_data() const
-    {
-        if (!is_object()) throw std::runtime_error("Not an object");
-        return object_value;
-    }
-
-    constexpr std::basic_string_view<CharType> getString() const
-    {
+    constexpr std::basic_string_view<CharType> getString() const {
         if (!is_string()) throw std::runtime_error("Not a string");
-        return string_value;
+        return { string_data(), length() };
+    }
+    
+    constexpr double getNumber() const {
+		if (!is_number()) throw std::runtime_error("Not a number");
+        return get<double>();
     }
 
     template<typename ValueType> constexpr ValueType get() const
     {
         if constexpr (std::is_same_v<ValueType, bool>) {
-            if (is_boolean()) return boolean_value;
-            throw std::runtime_error("JSON value is not a boolean");
+            if (!is_boolean()) throw std::runtime_error("JSON value is not a boolean");
+            return data_.boolean_value;
         } else if constexpr (std::is_arithmetic_v<ValueType>) {
-            if (is_uinteger()) return static_cast<ValueType>(uint_value);
-            if (is_integer()) return static_cast<ValueType>(int_value);
-            if (is_float()) return static_cast<ValueType>(float_value);
+            if (is_uinteger()) return static_cast<ValueType>(data_.uint_value);
+            if (is_integer()) return static_cast<ValueType>(data_.int_value);
+            if (is_float()) return static_cast<ValueType>(data_.float_value);
             throw std::runtime_error("JSON value is not a number");
         } else if constexpr (std::is_same_v<ValueType, std::basic_string_view<CharType>>) {
             return getString();
         } else if constexpr (std::is_same_v<ValueType, std::nullptr_t>) {
-            if (is_null()) return nullptr;
-            throw std::runtime_error("JSON value is not null");
-        } else if constexpr (std::is_same_v<ValueType, basic_array_t<CharType>>) {
-            return array_data();
-        } else if constexpr (std::is_same_v<ValueType, basic_object_t<CharType>>) {
-            return object_data();
+            if (!is_null()) throw std::runtime_error("JSON value is not null");
+            return nullptr;
         } else {
             static_assert(std::is_same_v<ValueType, void>, "Unsupported type requested");
-        }
-    }
+		}
+	}
 };
 
 #ifdef JSON2CPP_USE_UTF16
@@ -309,6 +192,6 @@ using array_t = basic_array_t<basicType>;
 using object_t = basic_object_t<basicType>;
 using value_pair_t = basic_value_pair_t<basicType>;
 
-}// namespace json2cpp
+}
 
 #endif
