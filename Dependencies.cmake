@@ -41,7 +41,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET ValiJSON::valijson)
-    cpmaddpackage("gh:tristanpenman/valijson@1.0.5")
+    cpmaddpackage("gh:tristanpenman/valijson@1.0.6")
   endif()
 
 endfunction()
