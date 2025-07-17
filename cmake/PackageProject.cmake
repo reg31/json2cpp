@@ -176,7 +176,7 @@ include("${CMAKE_CURRENT_BINARY_DIR}/extracted/cmake-forward-arguments-eb9bf4f02
     "${_multiValueArgs};DEPENDENCIES;PRIVATE_DEPENDENCIES")
 
   # download ycm
-  FetchContent_Declare(_ycm URL https://github.com/robotology/ycm/archive/refs/tags/v0.18.3.zip)
+  FetchContent_Declare(_ycm URL https://github.com/robotology/ycm/archive/refs/tags/v0.18.4.zip)
   FetchContent_MakeAvailable(_ycm)
   include("${_ycm_SOURCE_DIR}/modules/InstallBasicPackageFiles.cmake")
   install_basic_package_files(${_PackageProject_NAME} "${_FARGS_LIST}")
