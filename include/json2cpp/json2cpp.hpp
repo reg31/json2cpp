@@ -85,16 +85,24 @@ private:
         return { data_.object_value, size() }; 
     }
 
-    constexpr const basic_json* find_value(std::basic_string_view<CharType> key) const noexcept {
-        if (!is_object()) return nullptr;
-        const auto obj = object_data();
-        for (const auto& pair : obj) {
-            if (pair.first == key) return &pair.second;
-        }
-        return nullptr;
+    inline constexpr const basic_json* find_value(std::basic_string_view<CharType> key) const noexcept {
+		if (is_object()) {
+			const auto obj = object_data();
+			const auto it = std::ranges::find_if(obj, [key](const auto& pair) {
+				return pair.first.getString() == key;
+			});
+			return (it != obj.end()) ? &it->second : nullptr;
+		} else if (is_array()) {
+			const auto arr = array_data();
+			const auto it = std::ranges::find_if(arr, [key](const auto& element) {
+				return element.is_string() && element.getString() == key;
+			});
+			return (it != arr.end()) ? &(*it) : nullptr;
+		}
+		return nullptr;
     }
 
-    constexpr void check_bounds(size_t index) const {
+    inline constexpr void check_bounds(size_t index) const {
         if (index >= size()) throw std::runtime_error("Index out of range");
     }
 
@@ -111,14 +119,15 @@ public:
     constexpr basic_json(int64_t v) noexcept : data_{ .int_value = v } { set_type_and_length(Type::Integer, 0); }
     constexpr basic_json(uint64_t v) noexcept : data_{ .uint_value = v } { set_type_and_length(Type::UInteger, 0); }
     constexpr basic_json(double v) noexcept : data_{ .float_value = v } { set_type_and_length(Type::Float, 0); }
-    constexpr basic_json(std::basic_string_view<CharType> v) noexcept {
+    
+    inline constexpr basic_json(std::basic_string_view<CharType> v) noexcept {
         const size_t len = v.size();
         set_type_and_length(Type::String, len);
-        if (len <= capacity) {
+		
+        if (len <= capacity)
             std::ranges::copy(v, data_.short_data.begin());
-        } else {
+        else
             data_.long_data = v.data();
-        }
     }
 
     constexpr size_t size() const noexcept { return type_and_length_ & LENGTH_MASK; }
@@ -138,7 +147,7 @@ public:
     constexpr const basic_json &operator[](size_t index) const { return at(index); }
 
     template<typename ValueType>
-    constexpr bool operator==(const ValueType &other) const {
+    inline constexpr bool operator==(const ValueType &other) const {
         return is_string() && size() == other.length() && 
                std::equal(string_data(), string_data() + size(), other.data());
     }
@@ -148,7 +157,7 @@ public:
         return is_array() ? array_data()[index] : object_data()[index].second;
     }
 
-    constexpr const basic_json &at(std::basic_string_view<CharType> key) const {
+    inline constexpr const basic_json &at(std::basic_string_view<CharType> key) const {
         const auto* result = find_value(key);
         if (!result) throw std::out_of_range("Key not found");
         return *result;
@@ -164,14 +173,15 @@ public:
 
     constexpr std::basic_string_view<CharType> getString() const { return { string_data(), size() }; }
 
-    constexpr double getNumber() const {
+    inline constexpr double getNumber() const {
         return type() == Type::UInteger ? static_cast<double>(data_.uint_value) :
                type() == Type::Integer ? static_cast<double>(data_.int_value) :
                type() == Type::Float ? data_.float_value : 
                throw std::runtime_error("Not a number");
     }
 
-    template<typename T> constexpr T get() const {
+    template<typename T> 
+    inline constexpr T get() const {
         if constexpr (std::is_same_v<T, std::basic_string_view<CharType>>) {
             return getString();
         } else if constexpr (std::is_same_v<T, bool>) {
@@ -197,4 +207,4 @@ using value_pair_t = basic_value_pair_t<basicType>;
 
 }
 
-#endif
+#endi
