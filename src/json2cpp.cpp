@@ -45,9 +45,7 @@ std::string sanitize_identifier(std::string_view name)
       result.emplace_back('_');
     }
   }
-  if (!result.empty() && std::isdigit(result[0])) {
-    result.insert(0, "_");
-  }
+  if (!result.empty() && std::isdigit(result[0])) { result.insert(0, "_"); }
   return result.empty() ? "json_doc" : result;
 }
 
@@ -93,7 +91,8 @@ struct JsonHasher
     hash_combine(seed, static_cast<std::size_t>(j.type()));
     switch (j.type()) {
     case nlohmann::ordered_json::value_t::null:
-    case nlohmann::ordered_json::value_t::discarded: break;
+    case nlohmann::ordered_json::value_t::discarded:
+      break;
     case nlohmann::ordered_json::value_t::object:
       for (auto it = j.begin(); it != j.end(); ++it) {
         hash_combine(seed, std::hash<std::string>{}(it.key()));
@@ -106,7 +105,9 @@ struct JsonHasher
     case nlohmann::ordered_json::value_t::string:
       hash_combine(seed, std::hash<std::string>{}(j.get_ref<const std::string &>()));
       break;
-    case nlohmann::ordered_json::value_t::boolean: hash_combine(seed, std::hash<bool>{}(j.get<bool>())); break;
+    case nlohmann::ordered_json::value_t::boolean:
+      hash_combine(seed, std::hash<bool>{}(j.get<bool>()));
+      break;
     case nlohmann::ordered_json::value_t::number_integer:
       hash_combine(seed, std::hash<std::int64_t>{}(j.get<std::int64_t>()));
       break;
@@ -116,7 +117,8 @@ struct JsonHasher
     case nlohmann::ordered_json::value_t::number_float:
       hash_combine(seed, std::hash<double>{}(j.get<double>()));
       break;
-    default: break;
+    default:
+      break;
     }
     return seed;
   }
@@ -269,9 +271,8 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
           compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
         pairs.emplace_back(fmt::format("value_pair_t{{{}, {}}}", key_repr, val_repr));
       }
-      return fmt::format("object_t{{std::array<value_pair_t, {}>{{ {{ {{ {} }} }} }}}}",
-        pairs.size(),
-        fmt::join(pairs, ", "));
+      return fmt::format(
+        "object_t{{std::array<value_pair_t, {}>{{ {{ {{ {} }} }} }}}}", pairs.size(), fmt::join(pairs, ", "));
     }
 
     std::vector<std::string> pairs;
@@ -310,9 +311,8 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
         entries.emplace_back(fmt::format("json{{{}}}",
           compile_dispatch(child, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker)));
       }
-      return fmt::format("array_t{{std::array<json, {}>{{ {{ {{ {} }} }} }}}}",
-        entries.size(),
-        fmt::join(entries, ", "));
+      return fmt::format(
+        "array_t{{std::array<json, {}>{{ {{ {{ {} }} }} }}}}", entries.size(), fmt::join(entries, ", "));
     }
 
     std::vector<std::string> entries;
