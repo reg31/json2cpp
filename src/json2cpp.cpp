@@ -25,6 +25,7 @@ SOFTWARE.
 #include "json2cpp.hpp"
 #include <algorithm>
 #include <cctype>
+#include <fmt/ranges.h>
 #include <fstream>
 #include <functional>
 #include <set>
