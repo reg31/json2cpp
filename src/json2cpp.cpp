@@ -43,9 +43,7 @@ std::string sanitize_identifier(std::string_view name)
       result.push_back('_');
     }
   }
-  if (!result.empty() && std::isdigit(result[0])) {
-    result.insert(0, "_");
-  }
+  if (!result.empty() && std::isdigit(result[0])) { result.insert(0, "_"); }
   return result.empty() ? "json_doc" : result;
 }
 
@@ -91,7 +89,8 @@ struct JsonHasher
     hash_combine(seed, static_cast<std::size_t>(j.type()));
     switch (j.type()) {
     case nlohmann::ordered_json::value_t::null:
-    case nlohmann::ordered_json::value_t::discarded: break;
+    case nlohmann::ordered_json::value_t::discarded:
+      break;
     case nlohmann::ordered_json::value_t::object:
       for (auto it = j.begin(); it != j.end(); ++it) {
         hash_combine(seed, std::hash<std::string>{}(it.key()));
@@ -104,7 +103,9 @@ struct JsonHasher
     case nlohmann::ordered_json::value_t::string:
       hash_combine(seed, std::hash<std::string>{}(j.get_ref<const std::string &>()));
       break;
-    case nlohmann::ordered_json::value_t::boolean: hash_combine(seed, std::hash<bool>{}(j.get<bool>())); break;
+    case nlohmann::ordered_json::value_t::boolean:
+      hash_combine(seed, std::hash<bool>{}(j.get<bool>()));
+      break;
     case nlohmann::ordered_json::value_t::number_integer:
       hash_combine(seed, std::hash<std::int64_t>{}(j.get<std::int64_t>()));
       break;
@@ -114,7 +115,8 @@ struct JsonHasher
     case nlohmann::ordered_json::value_t::number_float:
       hash_combine(seed, std::hash<double>{}(j.get<double>()));
       break;
-    default: break;
+    default:
+      break;
     }
     return seed;
   }
