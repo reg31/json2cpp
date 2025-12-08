@@ -5,7 +5,7 @@ jobs:
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Set up Clang
         run: |
@@ -27,7 +27,7 @@ jobs:
         run: cpack -C Release -G ZIP
       
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: json2cpp-ubuntu
           path: build/*-*Release*-*.*
@@ -36,7 +36,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Set up Clang
         run: |
@@ -58,7 +58,7 @@ jobs:
         run: cpack -C Release -G ZIP
       
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: json2cpp-macos
           path: build/*-*Release*-*.*
@@ -67,7 +67,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -89,7 +89,7 @@ jobs:
         run: cpack -C Release -G ZIP
       
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: json2cpp-windows
           path: build/*-*Release*-*.*
@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: json2cpp-builds
       
@@ -122,3 +122,11 @@ jobs:
             json2cpp-builds/json2cpp-ubuntu/*-*Release*-*.*
             json2cpp-builds/json2cpp-macos/*-*Release*-*.*
             json2cpp-builds/json2cpp-windows/*-*Release*-*.*
+
+      - name: Cleanup repository
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 3
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
