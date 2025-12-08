@@ -37,14 +37,14 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
-      
-      - name: Set up Clang
-        run: |
-          brew install llvm ninja
-          echo "/opt/homebrew/opt/llvm/bin" >>$GITHUB_PATH
+
+      - name: Setup xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
       
       - name: Configure CMake
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }}
       
       - name: Build
         run: cmake --build ./build --config Release
