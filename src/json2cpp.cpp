@@ -24,11 +24,44 @@ SOFTWARE.
 
 #include "json2cpp.hpp"
 #include <algorithm>
+#include <cctype>
 #include <fstream>
+#include <functional>
 #include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+std::string sanitize_identifier(std::string_view name)
+{
+  std::string result;
+  result.reserve(name.size());
+  for (char c : name) {
+    if (std::isalnum(c)) {
+      result.push_back(c);
+    } else {
+      result.push_back('_');
+    }
+  }
+  if (!result.empty() && std::isdigit(result[0])) {
+    result.insert(0, "_");
+  }
+  return result.empty() ? "json_doc" : result;
+}
+
+std::string generate_raw_string_delimiter(const std::string &str)
+{
+  std::string delimiter = "json2cpp";
+  int suffix = 0;
+
+  std::string test_pattern = ")\"" + delimiter + "\"";
+  while (str.find(test_pattern) != std::string::npos) {
+    delimiter = fmt::format("json2cpp{}", ++suffix);
+    test_pattern = ")\"" + delimiter + "\"";
+  }
+
+  return delimiter;
+}
 
 std::string format_json_string(const std::string &str)
 {
@@ -37,11 +70,60 @@ std::string format_json_string(const std::string &str)
                           || str.find('\t') != std::string::npos;
 
   if (needs_raw_string) {
-    return fmt::format("RAW_PREFIX(R\"string({})string\")", str);
+    std::string delimiter = generate_raw_string_delimiter(str);
+    return fmt::format("RAW_PREFIX(R\"{}({}){}\")", delimiter, str, delimiter);
   } else {
     return fmt::format("RAW_PREFIX(\"{}\")", str);
   }
 }
+
+inline void hash_combine(std::size_t &seed, std::size_t value)
+{
+  seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+struct JsonHasher
+{
+  std::size_t operator()(const nlohmann::ordered_json &j) const
+  {
+    std::size_t seed = 0;
+
+    hash_combine(seed, static_cast<std::size_t>(j.type()));
+    switch (j.type()) {
+    case nlohmann::ordered_json::value_t::null:
+    case nlohmann::ordered_json::value_t::discarded: break;
+    case nlohmann::ordered_json::value_t::object:
+      for (auto it = j.begin(); it != j.end(); ++it) {
+        hash_combine(seed, std::hash<std::string>{}(it.key()));
+        hash_combine(seed, (*this)(it.value()));
+      }
+      break;
+    case nlohmann::ordered_json::value_t::array:
+      for (const auto &element : j) { hash_combine(seed, (*this)(element)); }
+      break;
+    case nlohmann::ordered_json::value_t::string:
+      hash_combine(seed, std::hash<std::string>{}(j.get_ref<const std::string &>()));
+      break;
+    case nlohmann::ordered_json::value_t::boolean: hash_combine(seed, std::hash<bool>{}(j.get<bool>())); break;
+    case nlohmann::ordered_json::value_t::number_integer:
+      hash_combine(seed, std::hash<std::int64_t>{}(j.get<std::int64_t>()));
+      break;
+    case nlohmann::ordered_json::value_t::number_unsigned:
+      hash_combine(seed, std::hash<std::uint64_t>{}(j.get<std::uint64_t>()));
+      break;
+    case nlohmann::ordered_json::value_t::number_float:
+      hash_combine(seed, std::hash<double>{}(j.get<double>()));
+      break;
+    default: break;
+    }
+    return seed;
+  }
+};
+
+struct JsonEqual
+{
+  bool operator()(const nlohmann::ordered_json &a, const nlohmann::ordered_json &b) const { return a == b; }
+};
 
 struct StringDuplicateTracker
 {
@@ -49,8 +131,12 @@ struct StringDuplicateTracker
   std::unordered_map<std::string, std::string> string_to_var;
   std::vector<std::string> definitions;
   std::size_t counter = 0;
+  std::size_t min_string_length = 10;
 
-  void count_string(const std::string &str) { string_counts[str]++; }
+  void count_string(const std::string &str, bool force = false)
+  {
+    if (force || str.length() >= min_string_length) { string_counts[str]++; }
+  }
 
   void generate_definitions()
   {
@@ -86,35 +172,45 @@ struct StringDuplicateTracker
 
 struct DuplicateTracker
 {
-  std::unordered_map<std::string, int> counts;
-  std::unordered_map<std::string, std::string> signature_to_var;
-  std::set<std::string> processed_signatures;
+  std::unordered_map<nlohmann::ordered_json, int, JsonHasher, JsonEqual> counts;
+  std::unordered_map<nlohmann::ordered_json, std::string, JsonHasher, JsonEqual> value_to_var;
+  std::set<std::string> processed_vars;
   std::size_t counter = 0;
   const std::string prefix;
+  std::size_t min_size = 3;
 
   DuplicateTracker(std::string p) : prefix(std::move(p)) {}
 
-  void track(const nlohmann::ordered_json &value) { counts[value.dump()]++; }
-
-  void prepare_variables()
+  void track(const nlohmann::ordered_json &value)
   {
-    for (const auto &[signature, count] : counts) {
-      if (count > 1) { signature_to_var[signature] = fmt::format("shared_{}_{}", prefix, counter++); }
+    if (value.is_object() && value.size() >= min_size) {
+      counts[value]++;
+    } else if (value.is_array() && value.size() >= min_size) {
+      counts[value]++;
     }
   }
 
-  bool is_shared(const std::string &signature) const { return signature_to_var.count(signature); }
+  void prepare_variables()
+  {
+    for (const auto &[value, count] : counts) {
+      if (count > 1) { value_to_var[value] = fmt::format("shared_{}_{}", prefix, counter++); }
+    }
+  }
 
-  bool is_processed(const std::string &signature) const { return processed_signatures.count(signature); }
+  bool is_shared(const nlohmann::ordered_json &value) const { return value_to_var.count(value) > 0; }
 
-  void mark_as_processed(const std::string &signature) { processed_signatures.insert(signature); }
+  bool is_processed(const std::string &var_name) const { return processed_vars.count(var_name) > 0; }
 
-  std::size_t get_reused_count() const { return signature_to_var.size(); }
+  void mark_as_processed(const std::string &var_name) { processed_vars.insert(var_name); }
+
+  std::string get_var_name(const nlohmann::ordered_json &value) const { return value_to_var.at(value); }
+
+  std::size_t get_reused_count() const { return value_to_var.size(); }
 
   int32_t get_total_references_saved() const
   {
     int32_t total = 0;
-    for (const auto &[sig, var] : signature_to_var) { total += counts.at(sig) - 1; }
+    for (const auto &[val, var] : value_to_var) { total += counts.at(val) - 1; }
     return total;
   }
 };
@@ -128,7 +224,7 @@ void analyze_for_duplicates(const nlohmann::ordered_json &value,
   if (value.is_object()) {
     object_tracker.track(value);
     for (auto itr = value.begin(); itr != value.end(); ++itr) {
-      string_tracker.count_string(itr.key());
+      string_tracker.count_string(itr.key(), true);
       nlohmann::ordered_json pair_rep;
       pair_rep[itr.key()] = *itr;
       pair_tracker.track(pair_rep);
@@ -163,16 +259,26 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
   const auto current_object_number = obj_count++;
 
   if (value.is_object()) {
+    if (value.size() < object_tracker.min_size) {
+      std::vector<std::string> pairs;
+      for (auto itr = value.begin(); itr != value.end(); ++itr) {
+        const auto key_repr = string_tracker.get_string_representation(itr.key());
+        const auto val_repr =
+          compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
+        pairs.emplace_back(fmt::format("value_pair_t{{{}, {}}}", key_repr, val_repr));
+      }
+      return fmt::format("object_t{{std::array<value_pair_t, {}>{{{{{}}}}}}}", pairs.size(), fmt::join(pairs, ", "));
+    }
+
     std::vector<std::string> pairs;
     for (auto itr = value.begin(); itr != value.end(); ++itr) {
       nlohmann::ordered_json pair_rep;
       pair_rep[itr.key()] = *itr;
-      std::string pair_signature = pair_rep.dump();
 
-      if (pair_tracker.is_shared(pair_signature)) {
-        auto var_name = pair_tracker.signature_to_var.at(pair_signature);
-        if (!pair_tracker.is_processed(pair_signature)) {
-          pair_tracker.mark_as_processed(pair_signature);
+      if (pair_tracker.is_shared(pair_rep)) {
+        auto var_name = pair_tracker.get_var_name(pair_rep);
+        if (!pair_tracker.is_processed(var_name)) {
+          pair_tracker.mark_as_processed(var_name);
           const auto key_repr = string_tracker.get_string_representation(itr.key());
           const auto val_repr =
             compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
@@ -194,6 +300,15 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
     return fmt::format("object_t{{object_data_{}}}", current_object_number);
 
   } else if (value.is_array()) {
+    if (value.size() < array_tracker.min_size) {
+      std::vector<std::string> entries;
+      for (const auto &child : value) {
+        entries.emplace_back(fmt::format("json{{{}}}",
+          compile_dispatch(child, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker)));
+      }
+      return fmt::format("array_t{{std::array<json, {}>{{{{{}}}}}}}", entries.size(), fmt::join(entries, ", "));
+    }
+
     std::vector<std::string> entries;
     for (const auto &child : value) {
       entries.emplace_back(fmt::format("{{{}}},",
@@ -218,22 +333,20 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
   DuplicateTracker &array_tracker,
   DuplicateTracker &pair_tracker)
 {
-  std::string signature = value.dump();
-
-  if (value.is_object() && object_tracker.is_shared(signature)) {
-    auto var_name = object_tracker.signature_to_var.at(signature);
-    if (object_tracker.is_processed(signature)) { return var_name; }
-    object_tracker.mark_as_processed(signature);
+  if (value.is_object() && object_tracker.is_shared(value)) {
+    auto var_name = object_tracker.get_var_name(value);
+    if (object_tracker.is_processed(var_name)) { return var_name; }
+    object_tracker.mark_as_processed(var_name);
     auto body =
       generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
     lines.emplace_back(fmt::format("inline constexpr auto {} = json{{{{{}}}}};", var_name, body));
     return var_name;
   }
 
-  if (value.is_array() && array_tracker.is_shared(signature)) {
-    auto var_name = array_tracker.signature_to_var.at(signature);
-    if (array_tracker.is_processed(signature)) { return var_name; }
-    array_tracker.mark_as_processed(signature);
+  if (value.is_array() && array_tracker.is_shared(value)) {
+    auto var_name = array_tracker.get_var_name(value);
+    if (array_tracker.is_processed(var_name)) { return var_name; }
+    array_tracker.mark_as_processed(var_name);
     auto body =
       generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
     lines.emplace_back(fmt::format("inline constexpr auto {} = json{{{{{}}}}};", var_name, body));
@@ -259,8 +372,9 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
   return "unhandled";
 }
 
-compile_results compile(const std::string_view document_name, const nlohmann::ordered_json &json)
+compile_results compile(const std::string_view original_name, const nlohmann::ordered_json &json)
 {
+  const std::string document_name = sanitize_identifier(original_name);
   StringDuplicateTracker string_tracker;
   DuplicateTracker object_tracker("obj");
   DuplicateTracker array_tracker("arr");
@@ -316,14 +430,17 @@ namespace compiled_json::{}::impl {{
     last_obj_name));
 
   spdlog::info("{} JSON objects processed.", obj_count);
-  spdlog::info("{} duplicate strings reused, saving {} string definitions.",
+  spdlog::info("{} duplicate strings reused (min length: {}), saving {} string definitions.",
     string_tracker.get_reused_count(),
+    string_tracker.min_string_length,
     string_tracker.get_total_references_saved());
-  spdlog::info("{} duplicate arrays reused, saving {} references.",
+  spdlog::info("{} duplicate arrays reused (min size: {}), saving {} references.",
     array_tracker.get_reused_count(),
+    array_tracker.min_size,
     array_tracker.get_total_references_saved());
-  spdlog::info("{} duplicate objects reused, saving {} references.",
+  spdlog::info("{} duplicate objects reused (min size: {}), saving {} references.",
     object_tracker.get_reused_count(),
+    object_tracker.min_size,
     object_tracker.get_total_references_saved());
   spdlog::info("{} duplicate key-value pairs reused, saving {} references.",
     pair_tracker.get_reused_count(),
@@ -346,6 +463,7 @@ void write_compilation([[maybe_unused]] std::string_view document_name,
   const compile_results &results,
   const std::filesystem::path &base_output)
 {
+  std::string sanitized_name = sanitize_identifier(document_name);
   const auto append_extension = [](std::filesystem::path name, std::string_view ext) { return name += ext; };
   const auto hpp_name = append_extension(base_output, ".hpp");
   const auto cpp_name = append_extension(base_output, ".cpp");
@@ -361,8 +479,8 @@ void write_compilation([[maybe_unused]] std::string_view document_name,
   cpp << fmt::format("#include \"{}\"\n", impl_name.filename().string());
   cpp << fmt::format(
     "namespace compiled_json::{} {{\nconst json2cpp::json &get() {{ return compiled_json::{}::impl::document; }}\n}}\n",
-    document_name,
-    document_name);
+    sanitized_name,
+    sanitized_name);
 }
 
 void compile_to(const std::string_view document_name,
