@@ -41,9 +41,9 @@ std::string sanitize_identifier(std::string_view name)
   result.reserve(name.size());
   for (char c : name) {
     if (std::isalnum(c)) {
-      result.push_back(c);
+      result.emplace_back(c);
     } else {
-      result.push_back('_');
+      result.emplace_back('_');
     }
   }
   if (!result.empty() && std::isdigit(result[0])) {
