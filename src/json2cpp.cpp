@@ -25,7 +25,6 @@ SOFTWARE.
 #include "json2cpp.hpp"
 #include <algorithm>
 #include <cctype>
-#include <fmt/ranges.h>
 #include <fstream>
 #include <functional>
 #include <set>
@@ -34,6 +33,7 @@ SOFTWARE.
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <fmt/ranges.h> 
 
 std::string sanitize_identifier(std::string_view name)
 {
@@ -46,7 +46,9 @@ std::string sanitize_identifier(std::string_view name)
       result.push_back('_');
     }
   }
-  if (!result.empty() && std::isdigit(result[0])) { result.insert(0, "_"); }
+  if (!result.empty() && std::isdigit(result[0])) {
+    result.insert(0, "_");
+  }
   return result.empty() ? "json_doc" : result;
 }
 
@@ -92,8 +94,7 @@ struct JsonHasher
     hash_combine(seed, static_cast<std::size_t>(j.type()));
     switch (j.type()) {
     case nlohmann::ordered_json::value_t::null:
-    case nlohmann::ordered_json::value_t::discarded:
-      break;
+    case nlohmann::ordered_json::value_t::discarded: break;
     case nlohmann::ordered_json::value_t::object:
       for (auto it = j.begin(); it != j.end(); ++it) {
         hash_combine(seed, std::hash<std::string>{}(it.key()));
@@ -106,9 +107,7 @@ struct JsonHasher
     case nlohmann::ordered_json::value_t::string:
       hash_combine(seed, std::hash<std::string>{}(j.get_ref<const std::string &>()));
       break;
-    case nlohmann::ordered_json::value_t::boolean:
-      hash_combine(seed, std::hash<bool>{}(j.get<bool>()));
-      break;
+    case nlohmann::ordered_json::value_t::boolean: hash_combine(seed, std::hash<bool>{}(j.get<bool>())); break;
     case nlohmann::ordered_json::value_t::number_integer:
       hash_combine(seed, std::hash<std::int64_t>{}(j.get<std::int64_t>()));
       break;
@@ -118,8 +117,7 @@ struct JsonHasher
     case nlohmann::ordered_json::value_t::number_float:
       hash_combine(seed, std::hash<double>{}(j.get<double>()));
       break;
-    default:
-      break;
+    default: break;
     }
     return seed;
   }
@@ -136,7 +134,7 @@ struct StringDuplicateTracker
   std::unordered_map<std::string, std::string> string_to_var;
   std::vector<std::string> definitions;
   std::size_t counter = 0;
-  std::size_t min_string_length = 10;
+  std::size_t min_string_length = 4;
 
   void count_string(const std::string &str, bool force = false)
   {
@@ -147,9 +145,9 @@ struct StringDuplicateTracker
   {
     for (const auto &[str, count] : string_counts) {
       if (count > 1) {
-        std::string var_name = fmt::format("shared_str_{}", counter++);
+        std::string var_name = fmt::format("s{}", counter++);
         string_to_var[str] = var_name;
-        definitions.emplace_back(fmt::format("inline constexpr auto {} = {};", var_name, format_json_string(str)));
+        definitions.emplace_back(fmt::format("constexpr auto {} = {};", var_name, format_json_string(str)));
       }
     }
     if (!definitions.empty()) definitions.emplace_back();
@@ -198,7 +196,7 @@ struct DuplicateTracker
   void prepare_variables()
   {
     for (const auto &[value, count] : counts) {
-      if (count > 1) { value_to_var[value] = fmt::format("shared_{}_{}", prefix, counter++); }
+      if (count > 1) { value_to_var[value] = fmt::format("{}{}", prefix, counter++); }
     }
   }
 
@@ -262,6 +260,7 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
   DuplicateTracker &pair_tracker)
 {
   const auto current_object_number = obj_count++;
+  const std::string obj_name = fmt::format("d{}", current_object_number);
 
   if (value.is_object()) {
     std::vector<std::string> pairs;
@@ -277,7 +276,7 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
           const auto val_repr =
             compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
           lines.emplace_back(
-            fmt::format("inline constexpr auto {} = value_pair_t{{{}, {}}};", var_name, key_repr, val_repr));
+            fmt::format("constexpr auto {} = value_pair_t{{{}, {}}};", var_name, key_repr, val_repr));
         }
         pairs.emplace_back(fmt::format("{},", var_name));
       } else {
@@ -287,11 +286,14 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
           compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker)));
       }
     }
+    
     lines.emplace_back(fmt::format(
-      "inline constexpr std::array<value_pair_t, {}> object_data_{} = {{{{", pairs.size(), current_object_number));
+      "constexpr std::array<value_pair_t, {}> {} = {{{{",
+      pairs.size(), 
+      obj_name));
     for (const auto &pair : pairs) { lines.emplace_back(fmt::format("  {}", pair)); }
     lines.emplace_back("}};");
-    return fmt::format("object_t{{object_data_{}}}", current_object_number);
+    return fmt::format("object_t{{{}}}", obj_name);
 
   } else if (value.is_array()) {
     std::vector<std::string> entries;
@@ -299,11 +301,14 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
       entries.emplace_back(fmt::format("{{{}}},",
         compile_dispatch(child, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker)));
     }
+    
     lines.emplace_back(fmt::format(
-      "inline constexpr std::array<json, {}> object_data_{} = {{{{", entries.size(), current_object_number));
+      "constexpr std::array<json, {}> {} = {{{{",
+      entries.size(), 
+      obj_name));
     for (const auto &entry : entries) { lines.emplace_back(fmt::format("  {}", entry)); }
     lines.emplace_back("}};");
-    return fmt::format("array_t{{object_data_{}}}", current_object_number);
+    return fmt::format("array_t{{{}}}", obj_name);
   }
 
   return "";
@@ -324,7 +329,7 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
     object_tracker.mark_as_processed(var_name);
     auto body =
       generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
-    lines.emplace_back(fmt::format("inline constexpr auto {} = json{{{{ {} }}}};", var_name, body));
+    lines.emplace_back(fmt::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
     return var_name;
   }
 
@@ -334,7 +339,7 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
     array_tracker.mark_as_processed(var_name);
     auto body =
       generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
-    lines.emplace_back(fmt::format("inline constexpr auto {} = json{{{{ {} }}}};", var_name, body));
+    lines.emplace_back(fmt::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
     return var_name;
   }
 
@@ -361,9 +366,9 @@ compile_results compile(const std::string_view original_name, const nlohmann::or
 {
   const std::string document_name = sanitize_identifier(original_name);
   StringDuplicateTracker string_tracker;
-  DuplicateTracker object_tracker("obj");
-  DuplicateTracker array_tracker("arr");
-  DuplicateTracker pair_tracker("pair");
+  DuplicateTracker object_tracker("o");
+  DuplicateTracker array_tracker("a");
+  DuplicateTracker pair_tracker("p");
   compile_results results;
 
   analyze_for_duplicates(json, string_tracker, object_tracker, array_tracker, pair_tracker);
@@ -409,7 +414,7 @@ namespace compiled_json::{}::impl {{
     compile_dispatch(json, obj_count, results.impl, string_tracker, object_tracker, array_tracker, pair_tracker);
 
   results.impl.emplace_back(fmt::format(R"(
-  inline constexpr auto document = json{{{{ {} }}}};
+  constexpr auto document = json{{{{ {} }}}};
 }}
 #endif)",
     last_obj_name));
