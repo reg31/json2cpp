@@ -21,7 +21,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           gh pr review --approve "${{ github.event.pull_request.number }}"
-          gh pr merge --squash --delete-branch "${{ github.event.pull_request.number }}"
+          gh pr comment "${{ github.event.pull_request.number }}" --body "@dependabot merge"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
@@ -31,7 +31,7 @@ jobs:
           gh pr list --author app/dependabot --json number --jq '.[].number' | while read pr_number; do
             echo "Processing PR #$pr_number"
             gh pr review --approve "$pr_number"
-            gh pr merge --squash --delete-branch "$pr_number"
+            gh pr comment "$pr_number" --body "@dependabot merge"
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
