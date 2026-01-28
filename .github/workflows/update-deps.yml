@@ -14,42 +14,24 @@ jobs:
       (github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'owner/my_repo') ||
       github.event_name == 'workflow_dispatch'
     steps:
-      - name: Get pending Dependabot PRs
-        if: github.event_name == 'workflow_dispatch'
-        id: get_prs
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Approve and merge single PR
+        if: github.event_name == 'pull_request'
         run: |
-          prs=$(gh pr list --author app/dependabot --json number --jq '.[].number')
-          echo "pr_numbers=$prs" >> $GITHUB_OUTPUT
+          gh pr review --approve "${{ github.event.pull_request.number }}"
+          gh pr merge --squash --delete-branch "${{ github.event.pull_request.number }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Process pull request
-        if: github.event_name == 'pull_request'
-        run: |
-          echo "${{ github.event.pull_request.html_url }}" > pr_urls.txt
-      
-      - name: Process all pending PRs
+      - name: Approve and merge all pending Dependabot PRs
         if: github.event_name == 'workflow_dispatch'
         run: |
-          for pr_number in ${{ steps.get_prs.outputs.pr_numbers }}; do
-            echo "https://github.com/${{ github.repository }}/pull/$pr_number" >> pr_urls.txt
+          gh pr list --author app/dependabot --json number --jq '.[].number' | while read pr_number; do
+            echo "Processing PR #$pr_number"
+            gh pr review --approve "$pr_number"
+            gh pr merge --squash --delete-branch "$pr_number"
           done
-      
-      - name: Approve and merge PRs
-        run: |
-          while IFS= read -r pr_url; do
-            echo "Processing $pr_url"
-            
-            gh pr view "$pr_url" --json author --jq '.author.login' > author.txt
-            author=$(cat author.txt)
-            
-            if [ "$author" == "dependabot[bot]" ]; then
-              echo "Approving $pr_url"
-              gh pr review --approve "$pr_url" || true
-              
-              echo "Merging $pr_url"
-              gh pr merge --auto --squash "$pr_url" || true
-            fi
-          done < pr_urls.txt
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
