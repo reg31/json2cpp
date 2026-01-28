@@ -27,7 +27,7 @@ jobs:
         run: cpack -C Release -G ZIP
       
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: json2cpp-ubuntu
           path: build/*-*Release*-*.*
@@ -58,7 +58,7 @@ jobs:
         run: cpack -C Release -G ZIP
       
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: json2cpp-macos
           path: build/*-*Release*-*.*
@@ -89,7 +89,7 @@ jobs:
         run: cpack -C Release -G ZIP
       
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: json2cpp-windows
           path: build/*-*Release*-*.*
