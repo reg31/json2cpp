@@ -15,15 +15,15 @@ jobs:
       github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.WORKFLOW_TOKEN }}
       
       - name: Approve and merge single PR
         if: github.event_name == 'pull_request'
         run: |
           gh pr review --approve "${{ github.event.pull_request.number }}"
           gh pr comment "${{ github.event.pull_request.number }}" --body "@dependabot merge"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Approve and merge all pending Dependabot PRs
         if: github.event_name == 'workflow_dispatch'
@@ -33,5 +33,3 @@ jobs:
             gh pr review --approve "$pr_number"
             gh pr comment "$pr_number" --body "@dependabot merge"
           done
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
