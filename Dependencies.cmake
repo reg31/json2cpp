@@ -17,7 +17,7 @@ function(json2cpp_setup_dependencies)
       NAME
       spdlog
       VERSION
-      1.16.0
+      1.17.0
       GITHUB_REPOSITORY
       "gabime/spdlog"
       OPTIONS
@@ -25,7 +25,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET Catch2::Catch2WithMain)
-    cpmaddpackage("gh:catchorg/Catch2@3.11.0")
+    cpmaddpackage("gh:catchorg/Catch2@3.12.0")
   endif()
 
   if(NOT TARGET CLI11::CLI11)
