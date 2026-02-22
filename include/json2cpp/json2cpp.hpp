@@ -26,57 +26,72 @@ SOFTWARE.
 #define CONSTEXPR_JSON_HPP_INCLUDED
 
 #include <array>
-#include <bit>
 #include <concepts>
 #include <cstdint>
 #include <span>
-#include <stdexcept>
 #include <string_view>
 #include <type_traits>
+#include <utility>
+
+#if defined(_MSC_VER)
+    #define JSON2CPP_UNREACHABLE() __assume(false)
+#else
+    #define JSON2CPP_UNREACHABLE() __builtin_unreachable()
+#endif
+
+#ifndef NDEBUG
+#include <stdexcept>
+#endif
 
 namespace json2cpp {
 
 namespace detail {
-    [[noreturn]] constexpr void throw_out_of_range(const char* msg) {
+    [[noreturn]] inline void throw_out_of_range(const char* msg) {
+#ifndef NDEBUG
         throw std::out_of_range(msg);
-    }
-    [[noreturn]] constexpr void throw_domain_error(const char* msg) {
-        throw std::domain_error(msg);
-    }
-    [[noreturn]] constexpr void throw_invalid_arg(const char* msg) {
-        throw std::invalid_argument(msg);
+#else
+        (void)msg;
+        JSON2CPP_UNREACHABLE();
+#endif
     }
 
-	template<typename CharType>
+    [[noreturn]] inline void throw_domain_error(const char* msg) {
+#ifndef NDEBUG
+        throw std::domain_error(msg);
+#else
+        (void)msg;
+        JSON2CPP_UNREACHABLE();
+#endif
+    }
+
+    template<typename CharType>
     constexpr uint32_t hash_key(std::basic_string_view<CharType> str) noexcept
-	{
-		uint32_t hash = 0x811c9dc5;
-		
-		for (auto character : str)
-		{
-			hash ^= static_cast<uint8_t>(character);
-			hash *= 0x01000193;
-		}
-		
-		return (hash ^ (hash >> 28)) & 0x0FFFFFFF;
-	}
+    {
+        uint32_t h = 0x811c9dc5;
+        for (auto c : str) {
+            h ^= static_cast<uint8_t>(c);
+            h *= 0x01000193;
+        }
+        const uint32_t result = (h ^ (h >> 29)) & 0x1FFFFFFF;
+        return result != 0 ? result : 1;
+    }
 
     template<typename CharType, size_t N>
     struct CompileTimeKey {
         std::basic_string_view<CharType> value;
         uint32_t hash;
 
-        constexpr CompileTimeKey(const CharType (&str)[N]) noexcept 
+        constexpr CompileTimeKey(const CharType (&str)[N]) noexcept
             : value(str, N - 1), hash(hash_key(value)) {}
 
-        constexpr operator std::basic_string_view<CharType>() const noexcept { 
-            return value; 
+        constexpr operator std::basic_string_view<CharType>() const noexcept {
+            return value;
         }
     };
 }
 
 template<typename CharType> struct basic_json;
-template<typename F, typename S> struct pair { F first; [[no_unique_address]] S second; };
+template<typename F, typename S> struct pair { F first; S second; };
 template<typename CharType> using basic_value_pair_t = pair<basic_json<CharType>, basic_json<CharType>>;
 template<typename CharType> using basic_object_t = std::span<const basic_value_pair_t<CharType>>;
 template<typename CharType> using basic_array_t = std::span<const basic_json<CharType>>;
@@ -104,7 +119,7 @@ private:
         length_ = static_cast<uint32_t>(len);
         metadata_ = (static_cast<uint32_t>(std::to_underlying(t)) & 0b111)
                   | ((static_cast<uint32_t>(sorted) & 0b1) << 3)
-                  | ((hash_val & 0x0FFFFFFF) << 4);
+                  | ((hash_val & 0x1FFFFFFF) << 3);
     }
 
     constexpr bool eq_bool(bool other) const noexcept {
@@ -112,13 +127,15 @@ private:
     }
 
     constexpr bool eq_int(int64_t other) const noexcept {
-        return type() == Type::Integer ? data_storage_.int_value == other :
-               (type() == Type::UInteger && other >= 0 && data_storage_.uint_value == static_cast<uint64_t>(other));
+        const auto t = type();
+        return t == Type::Integer ? data_storage_.int_value == other :
+               (t == Type::UInteger && other >= 0 && data_storage_.uint_value == static_cast<uint64_t>(other));
     }
 
     constexpr bool eq_uint(uint64_t other) const noexcept {
-        return type() == Type::UInteger ? data_storage_.uint_value == other :
-               (type() == Type::Integer && data_storage_.int_value >= 0 && static_cast<uint64_t>(data_storage_.int_value) == other);
+        const auto t = type();
+        return t == Type::UInteger ? data_storage_.uint_value == other :
+               (t == Type::Integer && data_storage_.int_value >= 0 && static_cast<uint64_t>(data_storage_.int_value) == other);
     }
 
     constexpr bool eq_float(double other) const noexcept {
@@ -135,28 +152,27 @@ private:
     }
 
 public:
-    static constexpr uint32_t calc_hash(std::basic_string_view<CharType> input_string) noexcept {
-        return detail::hash_key(input_string);
+    static constexpr uint32_t calc_hash(std::basic_string_view<CharType> sv) noexcept {
+        return detail::hash_key(sv);
     }
 
     [[nodiscard]] constexpr const basic_value_pair_t<CharType>* find_entry(std::basic_string_view<CharType> key, uint32_t target_hash) const noexcept {
         if (!is_object()) return nullptr;
-        size_t count = length_;
 
         if (is_sorted_obj()) {
-            size_t left = 0, right = count;
+            size_t left = 0, right = length_;
             while (left < right) {
                 size_t mid = left + (right - left) / 2;
                 if (data_storage_.object_value[mid].first.getString() < key) left = mid + 1;
                 else right = mid;
             }
-            if (left < count) {
+            if (left < length_) {
                 const auto& found = data_storage_.object_value[left].first;
-                if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key)
+                if (found.size() == key.size() && found.getString() == key)
                     return &data_storage_.object_value[left];
             }
         } else {
-            for (size_t i = 0; i < count; ++i) {
+            for (size_t i = 0; i < length_; ++i) {
                 const auto& k = data_storage_.object_value[i].first;
                 if (k.hash() == target_hash && k.size() == key.size() && k.getString() == key)
                     return &data_storage_.object_value[i];
@@ -187,8 +203,7 @@ public:
     }
 
     [[nodiscard]] constexpr uint32_t hash() const noexcept {
-        uint32_t stored_hash = (metadata_ >> 4) & 0x0FFFFFFF;
-        return stored_hash != 0 ? stored_hash : calc_hash(getString());
+        return (metadata_ >> 3) & 0x1FFFFFFF;
     }
 
     constexpr basic_json() noexcept : length_(0), metadata_(0), data_storage_{.short_data = {}} {}
@@ -227,7 +242,7 @@ public:
     }
 
     constexpr basic_json(std::basic_string_view<CharType> v) noexcept {
-        uint32_t hash_val = v.size() > capacity ? calc_hash(v) : 0;
+        uint32_t hash_val = calc_hash(v);
         set_metadata(Type::String, v.size(), false, hash_val);
 
         if (v.size() <= capacity) {
@@ -245,7 +260,7 @@ public:
     [[nodiscard]] constexpr bool is_string() const noexcept { return type() == Type::String; }
     [[nodiscard]] constexpr bool is_number() const noexcept {
         auto t = type();
-        return t >= Type::Integer && t <= Type::Float;
+        return t == Type::Integer || t == Type::UInteger || t == Type::Float;
     }
     [[nodiscard]] constexpr bool is_boolean() const noexcept { return type() == Type::Boolean; }
     [[nodiscard]] constexpr bool is_null() const noexcept { return type() == Type::Null; }
@@ -258,8 +273,8 @@ public:
     [[nodiscard]] constexpr const basic_json& operator[](const CharType (&key)[N]) const {
         return at(detail::CompileTimeKey<CharType, N>(key));
     }
-    
-    [[nodiscard]] constexpr const basic_json& operator[](std::convertible_to<std::basic_string_view<CharType>> auto&& key) const 
+
+    [[nodiscard]] constexpr const basic_json& operator[](std::convertible_to<std::basic_string_view<CharType>> auto&& key) const
         requires (!std::is_array_v<std::remove_reference_t<decltype(key)>>)
     {
         return at(key);
@@ -280,8 +295,10 @@ public:
     }
 
     constexpr const basic_json& at(std::integral auto index) const {
-        if (index >= length_) [[unlikely]] detail::throw_out_of_range("Index out of range");
-        return is_array() ? data_storage_.array_value[index] : data_storage_.object_value[index].second;
+        const auto t = type();
+        if (t != Type::Array && t != Type::Object) [[unlikely]] detail::throw_domain_error("JSON value is not an array or object");
+        if (static_cast<size_t>(index) >= length_) [[unlikely]] detail::throw_out_of_range("Index out of range");
+        return t == Type::Array ? data_storage_.array_value[index] : data_storage_.object_value[index].second;
     }
 
     template<size_t N>
@@ -295,7 +312,7 @@ public:
         detail::throw_out_of_range("Key not found");
     }
 
-    [[nodiscard]] constexpr const basic_json& at(std::convertible_to<std::basic_string_view<CharType>> auto&& key) const 
+    [[nodiscard]] constexpr const basic_json& at(std::convertible_to<std::basic_string_view<CharType>> auto&& key) const
         requires (!std::is_array_v<std::remove_reference_t<decltype(key)>>)
     {
         if (auto* ptr = find_entry(key)) [[likely]] return ptr->second;
@@ -312,19 +329,21 @@ public:
     }
 
     [[nodiscard]] constexpr basic_object_t<CharType> items() const {
+        if (!is_object()) [[unlikely]] detail::throw_domain_error("JSON value is not an object");
         return {data_storage_.object_value, length_};
     }
 
-    [[nodiscard]] constexpr auto begin() const noexcept {
+    [[nodiscard]] constexpr const basic_json* begin() const noexcept {
         return is_array() ? data_storage_.array_value : nullptr;
     }
 
-    [[nodiscard]] constexpr auto end() const noexcept {
+    [[nodiscard]] constexpr const basic_json* end() const noexcept {
         return is_array() ? data_storage_.array_value + length_ : nullptr;
     }
 
-    constexpr operator std::span<const basic_json>() const {
-        return {begin(), end()};
+    constexpr operator std::span<const basic_json>() const noexcept {
+        if (!is_array()) return {};
+        return {data_storage_.array_value, length_};
     }
 
     [[nodiscard]] constexpr const CharType* data() const noexcept {
@@ -354,13 +373,15 @@ public:
             return data_storage_.boolean_value;
         }
         else if constexpr (std::is_integral_v<T>) {
-            if (!is_number()) [[unlikely]] detail::throw_domain_error("JSON value is not a number");
-            if (type() == Type::Integer) return static_cast<T>(data_storage_.int_value);
-            if (type() == Type::UInteger) return static_cast<T>(data_storage_.uint_value);
+            const auto t = type();
+            if (t != Type::Integer && t != Type::UInteger && t != Type::Float) [[unlikely]]
+                detail::throw_domain_error("JSON value is not a number");
+            if (t == Type::Integer)  return static_cast<T>(data_storage_.int_value);
+            if (t == Type::UInteger) return static_cast<T>(data_storage_.uint_value);
             return static_cast<T>(data_storage_.float_value);
         }
         else {
-            detail::throw_invalid_arg("Unsupported type for get()");
+            static_assert(sizeof(T) == 0, "Unsupported type for get<T>()");
         }
     }
 };

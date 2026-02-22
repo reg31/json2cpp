@@ -25,7 +25,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET Catch2::Catch2WithMain)
-    cpmaddpackage("gh:catchorg/Catch2@3.12.0")
+    cpmaddpackage("gh:catchorg/Catch2@3.13.0")
   endif()
 
   if(NOT TARGET CLI11::CLI11)
@@ -41,7 +41,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET ValiJSON::valijson)
-    cpmaddpackage("gh:tristanpenman/valijson@1.0.6")
+    cpmaddpackage("gh:tristanpenman/valijson@1.1.0")
   endif()
 
 endfunction()
