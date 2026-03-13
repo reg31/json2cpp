@@ -29,7 +29,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET CLI11::CLI11)
-    cpmaddpackage("gh:CLIUtils/CLI11@2.6.1")
+    cpmaddpackage("gh:CLIUtils/CLI11@2.6.2")
   endif()
 
   if(NOT TARGET ftxui::screen)
