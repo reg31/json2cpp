@@ -105,7 +105,7 @@ jobs:
           path: json2cpp-builds
       
       - name: Publish Snapshot Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: ${{ github.ref == 'refs/heads/main' }}
         with:
           tag_name: "snapshot-${{ github.sha }}"
@@ -115,7 +115,7 @@ jobs:
             json2cpp-builds/json2cpp-windows/*-*Release*-*.*
       
       - name: Publish Tagged Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           files: |
