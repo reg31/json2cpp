@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Only set the cxx_standard if it is not set by someone else
 if (NOT DEFINED CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 20)
+  set(CMAKE_CXX_STANDARD 23)
 endif()
 
 # strongly encouraged to enable this globally to avoid conflicts between
@@ -17,7 +17,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 # Set the project name and language
 project(
   json2cpp
-  VERSION 3.9
+  VERSION 3.10
   DESCRIPTION ""
   HOMEPAGE_URL "%%myurl%%"
   LANGUAGES CXX C)
