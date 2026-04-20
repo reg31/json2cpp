@@ -50,32 +50,26 @@ std::string sanitize_identifier(std::string_view name)
   return result.empty() ? "json_doc" : result;
 }
 
-std::string generate_raw_string_delimiter(const std::string &str)
+std::string escape_string(const std::string &str)
 {
-  std::string delimiter = "json2cpp";
-  int suffix = 0;
-
-  std::string test_pattern = ")\"" + delimiter + "\"";
-  while (str.find(test_pattern) != std::string::npos) {
-    delimiter = fmt::format("json2cpp{}", ++suffix);
-    test_pattern = ")\"" + delimiter + "\"";
+  std::string result;
+  result.reserve(str.size());
+  for (char c : str) {
+    switch (c) {
+    case '"':  result += "\\\""; break;
+    case '\\': result += "\\\\"; break;
+    case '\n': result += "\\n";  break;
+    case '\r': result += "\\r";  break;
+    case '\t': result += "\\t";  break;
+    default:   result += c;      break;
+    }
   }
-
-  return delimiter;
+  return result;
 }
 
 std::string format_json_string(const std::string &str)
 {
-  bool needs_raw_string = str.find('"') != std::string::npos || str.find('\\') != std::string::npos
-                          || str.find('\n') != std::string::npos || str.find('\r') != std::string::npos
-                          || str.find('\t') != std::string::npos;
-
-  if (needs_raw_string) {
-    std::string delimiter = generate_raw_string_delimiter(str);
-    return fmt::format("RAW_PREFIX(R\"{}({}){}\")", delimiter, str, delimiter);
-  } else {
-    return fmt::format("RAW_PREFIX(\"{}\")", str);
-  }
+  return fmt::format("RAW_PREFIX(\"{}\")", escape_string(str));
 }
 
 inline void hash_combine(std::size_t &seed, std::size_t value)
