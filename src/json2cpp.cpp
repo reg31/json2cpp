@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2026 Jason Turner, Regis Duflaut-Averty
+Copyright (c) 2025 Jason Turner, Regis Duflaut-Averty
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,17 +22,27 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "json2cpp_generator.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <functional>
+#include <fmt/format.h>
+#include <nlohmann/json.hpp>
 #include <set>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+struct compile_results
+{
+  std::vector<std::string> hpp;
+  std::vector<std::string> impl;
+};
 
 namespace {
 
