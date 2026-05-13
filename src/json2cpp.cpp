@@ -27,9 +27,9 @@ SOFTWARE.
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fmt/format.h>
 #include <fstream>
 #include <functional>
-#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <set>
 #include <spdlog/spdlog.h>
@@ -68,21 +68,30 @@ std::string escape_string(const std::string &str)
   result.reserve(str.size());
   for (char c : str) {
     switch (c) {
-    case '"': result += "\\\""; break;
-    case '\\': result += "\\\\"; break;
-    case '\n': result += "\\n"; break;
-    case '\r': result += "\\r"; break;
-    case '\t': result += "\\t"; break;
-    default: result += c; break;
+    case '"':
+      result += "\\\"";
+      break;
+    case '\\':
+      result += "\\\\";
+      break;
+    case '\n':
+      result += "\\n";
+      break;
+    case '\r':
+      result += "\\r";
+      break;
+    case '\t':
+      result += "\\t";
+      break;
+    default:
+      result += c;
+      break;
     }
   }
   return result;
 }
 
-std::string format_json_string(const std::string &str)
-{
-  return fmt::format("RAW_PREFIX(\"{}\")", escape_string(str));
-}
+std::string format_json_string(const std::string &str) { return fmt::format("RAW_PREFIX(\"{}\")", escape_string(str)); }
 
 uint32_t finalize_json_hash(uint32_t h)
 {
@@ -224,8 +233,7 @@ struct ReuseTrackerBase
 
   explicit ReuseTrackerBase(std::string p) : prefix(std::move(p)) {}
 
-  template<typename Predicate>
-  void prepare_reuse_variables(Predicate should_share)
+  template<typename Predicate> void prepare_reuse_variables(Predicate should_share)
   {
     for (const auto &[value, count] : counts) {
       if (should_share(count)) value_to_var[value] = fmt::format("{}{}", prefix, counter++);
@@ -257,7 +265,10 @@ struct DuplicateTracker : ReuseTrackerBase
     if ((value.is_object() || value.is_array()) && value.size() >= min_size) { ++counts[value]; }
   }
 
-  void prepare_variables() { prepare_reuse_variables([](int count) { return count > 1; }); }
+  void prepare_variables()
+  {
+    prepare_reuse_variables([](int count) { return count > 1; });
+  }
 };
 
 struct ScalarTracker : ReuseTrackerBase
@@ -268,7 +279,10 @@ struct ScalarTracker : ReuseTrackerBase
 
   using ReuseTrackerBase::ReuseTrackerBase;
 
-  void track(const nlohmann::ordered_json &value) { if (value.is_string()) ++counts[value]; }
+  void track(const nlohmann::ordered_json &value)
+  {
+    if (value.is_string()) ++counts[value];
+  }
 
   void prepare_variables()
   {
@@ -283,11 +297,13 @@ struct ScalarTracker : ReuseTrackerBase
   std::uint32_t get_pool_index(const nlohmann::ordered_json &value) const { return value_to_index.at(value); }
 
   int use_count(const nlohmann::ordered_json &value) const
-  { const auto it = counts.find(value); return it == counts.end() ? 0 : it->second; }
+  {
+    const auto it = counts.find(value);
+    return it == counts.end() ? 0 : it->second;
+  }
 };
 
-enum class ObjectLayout
-{
+enum class ObjectLayout {
   Regular,
   CompactInline,
   ValueByReference,
@@ -369,8 +385,7 @@ struct TrackerSet
   ScalarTracker scalar_tracker{ "s" };
 };
 
-void analyze_json(const nlohmann::ordered_json &value,
-  TrackerSet &trackers)
+void analyze_json(const nlohmann::ordered_json &value, TrackerSet &trackers)
 {
   if (value.is_object()) {
     trackers.object_tracker.track(value);
@@ -450,7 +465,7 @@ bool can_use_blob_keys(const nlohmann::ordered_json &value)
   for (auto itr = value.begin(); itr != value.end(); ++itr) {
     if (itr.key().size() >= 4096) return false;
     offset += itr.key().size();
-    if (offset >= (std::size_t{1} << 16)) return false;
+    if (offset >= (std::size_t{ 1 } << 16)) return false;
   }
   return true;
 }
@@ -473,10 +488,9 @@ ObjectLayout choose_object_layout(const nlohmann::ordered_json &value, const Emi
   }
 
   const auto blob_ref_savings = value_ref_possible && can_use_blob_keys(value)
-    ? value_ref_savings + (static_cast<double>(value.size()) * 8.0) - 16.0
-    : -1.0e18;
-  if (blob_ref_savings >= ctx.trackers.key_tracker.min_compact_savings
-      && blob_ref_savings > value_ref_savings
+                                  ? value_ref_savings + (static_cast<double>(value.size()) * 8.0) - 16.0
+                                  : -1.0e18;
+  if (blob_ref_savings >= ctx.trackers.key_tracker.min_compact_savings && blob_ref_savings > value_ref_savings
       && blob_ref_savings > inline_savings)
     return ObjectLayout::BlobByReference;
   if (value_ref_possible && value_ref_savings >= ctx.trackers.key_tracker.min_compact_savings
@@ -489,13 +503,13 @@ ObjectLayout choose_object_layout(const nlohmann::ordered_json &value, const Emi
 std::string emit_value_reference(const nlohmann::ordered_json &value, EmitContext &ctx)
 {
   if (value.is_object() && ctx.trackers.object_tracker.is_shared(value)) {
-    return fmt::format("&{}",
-      ensure_emitted(ctx.trackers.object_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
+    return fmt::format(
+      "&{}", ensure_emitted(ctx.trackers.object_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
   }
 
   if (value.is_array() && ctx.trackers.array_tracker.is_shared(value)) {
-    return fmt::format("&{}",
-      ensure_emitted(ctx.trackers.array_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
+    return fmt::format(
+      "&{}", ensure_emitted(ctx.trackers.array_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
   }
 
   return fmt::format("&s[{}]", ctx.trackers.scalar_tracker.get_pool_index(value));
@@ -546,7 +560,8 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
       key_offset += itr.key().size();
       utf16_key_offset += utf16_key_length;
     } else {
-      entries.emplace_back(fmt::format("pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value(itr.value(), ctx)));
+      entries.emplace_back(
+        fmt::format("pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value(itr.value(), ctx)));
     }
   }
 
@@ -564,7 +579,8 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
   ctx.lines.emplace_back("};");
   if (layout == ObjectLayout::CompactInline) return fmt::format("compact_object_t{{{}}}", node_name);
   if (layout == ObjectLayout::ValueByReference) return fmt::format("ref_value_object_t{{{}}}", node_name);
-  if (layout == ObjectLayout::BlobByReference) return fmt::format("blob_object_t{{{} + 1, {}}}", node_name, value.size());
+  if (layout == ObjectLayout::BlobByReference)
+    return fmt::format("blob_object_t{{{} + 1, {}}}", node_name, value.size());
   return fmt::format("object_t{{{}}}", node_name);
 }
 
@@ -709,7 +725,7 @@ namespace compiled_json::{}::impl {{
   return results;
 }
 
-}
+}// namespace
 
 std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::vector<std::string> &lines)
 {
