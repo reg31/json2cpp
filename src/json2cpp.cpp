@@ -84,6 +84,84 @@ std::string format_json_string(const std::string &str)
   return fmt::format("RAW_PREFIX(\"{}\")", escape_string(str));
 }
 
+uint32_t finalize_json_hash(uint32_t h)
+{
+  const uint32_t result = (h ^ (h >> 28)) & 0x0FFFFFFFu;
+  return result != 0u ? result : 1u;
+}
+
+uint32_t hash_utf8(std::string_view str)
+{
+  uint32_t h = 0x811c9dc5u;
+  for (const unsigned char c : str) {
+    h ^= c;
+    h *= 0x01000193u;
+  }
+  return finalize_json_hash(h);
+}
+
+void hash_utf16_unit(uint32_t &h, uint32_t unit)
+{
+  for (size_t i = 0; i < sizeof(char16_t); ++i) {
+    h ^= static_cast<uint8_t>(unit);
+    h *= 0x01000193u;
+    unit >>= 8;
+  }
+}
+
+uint32_t hash_utf16(std::string_view str)
+{
+  uint32_t h = 0x811c9dc5u;
+  for (size_t i = 0; i < str.size();) {
+    const auto c = static_cast<uint8_t>(str[i++]);
+    uint32_t cp = c;
+    if ((c & 0x80u) != 0u) {
+      const size_t extra = (c & 0xE0u) == 0xC0u ? 1u : ((c & 0xF0u) == 0xE0u ? 2u : 3u);
+      cp = c & (0x7Fu >> extra);
+      for (size_t j = 0; j < extra && i < str.size(); ++j) {
+        cp = (cp << 6) | (static_cast<uint8_t>(str[i++]) & 0x3Fu);
+      }
+    }
+    if (cp <= 0xFFFFu) {
+      hash_utf16_unit(h, cp);
+    } else {
+      cp -= 0x10000u;
+      hash_utf16_unit(h, 0xD800u + (cp >> 10));
+      hash_utf16_unit(h, 0xDC00u + (cp & 0x3FFu));
+    }
+  }
+  return finalize_json_hash(h);
+}
+
+size_t utf16_length(std::string_view str)
+{
+  size_t length = 0;
+  for (size_t i = 0; i < str.size();) {
+    const auto c = static_cast<uint8_t>(str[i++]);
+    uint32_t cp = c;
+    if ((c & 0x80u) != 0u) {
+      const size_t extra = (c & 0xE0u) == 0xC0u ? 1u : ((c & 0xF0u) == 0xE0u ? 2u : 3u);
+      cp = c & (0x7Fu >> extra);
+      for (size_t j = 0; j < extra && i < str.size(); ++j) {
+        cp = (cp << 6) | (static_cast<uint8_t>(str[i++]) & 0x3Fu);
+      }
+    }
+    length += cp <= 0xFFFFu ? 1u : 2u;
+  }
+  return length;
+}
+
+std::string emit_hash_literal(const std::string &str)
+{
+  return fmt::format("J2H({}, {})", hash_utf8(str), hash_utf16(str));
+}
+
+std::string emit_size_literal(size_t utf8_size, size_t utf16_size)
+{
+  if (utf8_size == utf16_size) return fmt::format("{}", utf8_size);
+  return fmt::format("J2D({}, {})", utf8_size, utf8_size - utf16_size);
+}
+
 inline void hash_combine(std::size_t &seed, std::size_t value)
 {
   seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
@@ -352,7 +430,7 @@ std::string emit_scalar_value(const nlohmann::ordered_json &value)
 std::string emit_value_hash(const nlohmann::ordered_json &value)
 {
   if (!value.is_string()) return "0u";
-  return fmt::format("json::calc_hash({})", format_json_string(value.get<std::string>()));
+  return emit_hash_literal(value.get<std::string>());
 }
 
 double estimate_value_ref_entry_savings(const nlohmann::ordered_json &value, const EmitContext &ctx)
@@ -427,9 +505,9 @@ std::string make_blob_literal(const nlohmann::ordered_json &value)
 {
   std::string result;
   for (auto itr = value.begin(); itr != value.end(); ++itr) {
-    result += fmt::format("RAW_CHARS(\"{}\")", escape_string(itr.key()));
+    result += fmt::format("J2C(\"{}\")", escape_string(itr.key()));
   }
-  return result.empty() ? "RAW_CHARS(\"\")" : result;
+  return result.empty() ? "J2C(\"\")" : result;
 }
 
 std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, const std::string &node_name)
@@ -444,46 +522,49 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
 
   if (layout == ObjectLayout::BlobByReference) {
     ctx.lines.emplace_back(fmt::format("constexpr basicType {}_keys[] = {};", node_name, make_blob_literal(value)));
-    entries.emplace_back(fmt::format("blob_ref_value_pair_t{{{}_keys, blob_ref_value_pair_t::header_t{{}}}},", node_name));
+    entries.emplace_back(fmt::format("blob_pair_t{{{}_keys, blob_pair_t::header_t{{}}}},", node_name));
   }
 
   std::size_t key_offset = 0;
+  std::size_t utf16_key_offset = 0;
   for (auto itr = value.begin(); itr != value.end(); ++itr) {
     if (layout == ObjectLayout::CompactInline) {
       const auto value_repr = emit_value(itr.value(), ctx);
       const auto key_name = ctx.trackers.key_tracker.ensure_key_definition(itr.key(), ctx.lines);
-      entries.emplace_back(fmt::format("compact_value_pair_t{{&{}, {}}},", key_name, value_repr));
+      entries.emplace_back(fmt::format("compact_pair_t{{&{}, {}}},", key_name, value_repr));
     } else if (layout == ObjectLayout::ValueByReference) {
       entries.emplace_back(
-        fmt::format("ref_value_pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value_reference(itr.value(), ctx)));
+        fmt::format("ref_pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value_reference(itr.value(), ctx)));
     } else if (layout == ObjectLayout::BlobByReference) {
-      entries.emplace_back(fmt::format("blob_ref_value_pair_t{{{}, {}, {}, json::calc_hash({}), {}}},",
+      const auto utf16_key_length = utf16_length(itr.key());
+      entries.emplace_back(fmt::format("blob_pair_t{{{}, {}, {}, {}, {}}},",
         emit_value_reference(itr.value(), ctx),
-        key_offset,
-        itr.key().size(),
-        format_json_string(itr.key()),
+        emit_size_literal(key_offset, utf16_key_offset),
+        emit_size_literal(itr.key().size(), utf16_key_length),
+        emit_hash_literal(itr.key()),
         emit_value_hash(itr.value())));
       key_offset += itr.key().size();
+      utf16_key_offset += utf16_key_length;
     } else {
-      entries.emplace_back(fmt::format("value_pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value(itr.value(), ctx)));
+      entries.emplace_back(fmt::format("pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value(itr.value(), ctx)));
     }
   }
 
   if (layout == ObjectLayout::CompactInline) {
-    ctx.lines.emplace_back(fmt::format("constexpr compact_value_pair_t {}[] = {{", node_name));
+    ctx.lines.emplace_back(fmt::format("constexpr compact_pair_t {}[] = {{", node_name));
   } else if (layout == ObjectLayout::ValueByReference) {
-    ctx.lines.emplace_back(fmt::format("constexpr ref_value_pair_t {}[] = {{", node_name));
+    ctx.lines.emplace_back(fmt::format("constexpr ref_pair_t {}[] = {{", node_name));
   } else if (layout == ObjectLayout::BlobByReference) {
-    ctx.lines.emplace_back(fmt::format("constexpr blob_ref_value_pair_t {}[] = {{", node_name));
+    ctx.lines.emplace_back(fmt::format("constexpr blob_pair_t {}[] = {{", node_name));
   } else {
-    ctx.lines.emplace_back(fmt::format("constexpr value_pair_t {}[] = {{", node_name));
+    ctx.lines.emplace_back(fmt::format("constexpr pair_t {}[] = {{", node_name));
   }
 
   for (const auto &entry : entries) { ctx.lines.emplace_back(fmt::format("  {}", entry)); }
   ctx.lines.emplace_back("};");
   if (layout == ObjectLayout::CompactInline) return fmt::format("compact_object_t{{{}}}", node_name);
   if (layout == ObjectLayout::ValueByReference) return fmt::format("ref_value_object_t{{{}}}", node_name);
-  if (layout == ObjectLayout::BlobByReference) return fmt::format("blob_ref_object_t{{{} + 1, {}}}", node_name, value.size());
+  if (layout == ObjectLayout::BlobByReference) return fmt::format("blob_object_t{{{} + 1, {}}}", node_name, value.size());
   return fmt::format("object_t{{{}}}", node_name);
 }
 
@@ -563,7 +644,7 @@ namespace compiled_json::{}::impl {{
   using json = json2cpp::basic_json<basicType>;
   using array_t = json2cpp::basic_array_t<basicType>;
   using object_t = json2cpp::basic_object_t<basicType>;
-  using value_pair_t = json2cpp::basic_value_pair_t<basicType>;
+  using pair_t = json2cpp::basic_value_pair_t<basicType>;
   )",
     document_name));
 
@@ -575,21 +656,25 @@ namespace compiled_json::{}::impl {{
     results.impl.emplace_back("  using key_descriptor_t = json2cpp::basic_key_descriptor<basicType>;");
   }
   if (layout_usage.uses_compact_inline) {
-    results.impl.emplace_back("  using compact_value_pair_t = json2cpp::basic_compact_value_pair_t<basicType>;");
+    results.impl.emplace_back("  using compact_pair_t = json2cpp::basic_compact_value_pair_t<basicType>;");
     results.impl.emplace_back("  using compact_object_t = json2cpp::basic_compact_object_t<basicType>;");
   }
   if (layout_usage.uses_value_ref) {
-    results.impl.emplace_back("  using ref_value_pair_t = json2cpp::basic_ref_value_pair_t<basicType>;");
+    results.impl.emplace_back("  using ref_pair_t = json2cpp::basic_ref_value_pair_t<basicType>;");
     results.impl.emplace_back("  using ref_value_object_t = json2cpp::basic_ref_value_object_t<basicType>;");
   }
   if (layout_usage.uses_blob_ref) {
     results.impl.emplace_back(R"(  #ifdef JSON2CPP_USE_UTF16
-  #define RAW_CHARS(str) u"" str
+  #define J2C(str) u"" str
+  #define J2H(utf8_hash, utf16_hash) utf16_hash
+  #define J2D(utf8_size, utf16_delta) (utf8_size - utf16_delta)
   #else
-  #define RAW_CHARS(str) str
+  #define J2C(str) str
+  #define J2H(utf8_hash, utf16_hash) utf8_hash
+  #define J2D(utf8_size, utf16_delta) utf8_size
     #endif)");
-    results.impl.emplace_back("  using blob_ref_value_pair_t = json2cpp::basic_blob_ref_value_pair_t<basicType>;");
-    results.impl.emplace_back("  using blob_ref_object_t = json2cpp::basic_blob_ref_object_t<basicType>;");
+    results.impl.emplace_back("  using blob_pair_t = json2cpp::basic_blob_ref_value_pair_t<basicType>;");
+    results.impl.emplace_back("  using blob_object_t = json2cpp::basic_blob_ref_object_t<basicType>;");
   }
   if (!trackers.scalar_tracker.pooled_values.empty()) {
     results.impl.emplace_back("  constexpr json s[] = {");
