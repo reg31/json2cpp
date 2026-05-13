@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2025 Jason Turner, Regis Duflaut-Averty
+Copyright (c) 2026 Jason Turner, Regis Duflaut-Averty
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,6 +25,7 @@ SOFTWARE.
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -153,19 +154,16 @@ struct ReuseTrackerBase
     }
   }
 
-  bool is_shared(const nlohmann::ordered_json &value) const { return value_to_var.count(value) > 0; }
-  bool is_processed(const std::string &var_name) const { return processed_vars.count(var_name) > 0; }
+  bool is_shared(const nlohmann::ordered_json &value) const { return value_to_var.contains(value); }
+  bool is_processed(const std::string &var_name) const { return processed_vars.contains(var_name); }
   void mark_as_processed(const std::string &var_name) { processed_vars.insert(var_name); }
-  std::string get_var_name(const nlohmann::ordered_json &value) const { return value_to_var.at(value); }
+  const std::string &get_var_name(const nlohmann::ordered_json &value) const { return value_to_var.at(value); }
   std::size_t get_reused_count() const { return value_to_var.size(); }
 
   int32_t get_total_references_saved() const
   {
     int32_t total = 0;
-    for (const auto &[value, var_name] : value_to_var) {
-      (void)var_name;
-      total += counts.at(value) - 1;
-    }
+    for (const auto &entry : value_to_var) { total += counts.at(entry.first) - 1; }
     return total;
   }
 };
@@ -187,21 +185,27 @@ struct DuplicateTracker : ReuseTrackerBase
 struct ScalarTracker : ReuseTrackerBase
 {
   int min_references = 2;
+  std::unordered_map<nlohmann::ordered_json, std::uint32_t, JsonHasher, JsonEqual> value_to_index;
+  std::vector<nlohmann::ordered_json> pooled_values;
 
   using ReuseTrackerBase::ReuseTrackerBase;
 
-  void track(const nlohmann::ordered_json &value)
+  void track(const nlohmann::ordered_json &value) { if (value.is_string()) ++counts[value]; }
+
+  void prepare_variables()
   {
-    if (value.is_string()) ++counts[value];
+    prepare_reuse_variables([this](int count) { return count >= min_references; });
+    pooled_values.reserve(value_to_var.size());
+    for (const auto &[value, _] : value_to_var) {
+      value_to_index.emplace(value, static_cast<std::uint32_t>(pooled_values.size()));
+      pooled_values.emplace_back(value);
+    }
   }
 
-  void prepare_variables() { prepare_reuse_variables([this](int count) { return count >= min_references; }); }
+  std::uint32_t get_pool_index(const nlohmann::ordered_json &value) const { return value_to_index.at(value); }
 
   int use_count(const nlohmann::ordered_json &value) const
-  {
-    if (const auto it = counts.find(value); it != counts.end()) return it->second;
-    return 0;
-  }
+  { const auto it = counts.find(value); return it == counts.end() ? 0 : it->second; }
 };
 
 enum class ObjectLayout
@@ -326,7 +330,7 @@ std::string ensure_emitted(Tracker &tracker,
   std::vector<std::string> &lines,
   ValueEmitter emit_initializer)
 {
-  const auto var_name = tracker.get_var_name(value);
+  const auto &var_name = tracker.get_var_name(value);
   if (!tracker.is_processed(var_name)) {
     tracker.mark_as_processed(var_name);
     lines.emplace_back(fmt::format("constexpr auto {} = json{{{{ {} }}}};", var_name, emit_initializer()));
@@ -416,8 +420,7 @@ std::string emit_value_reference(const nlohmann::ordered_json &value, EmitContex
       ensure_emitted(ctx.trackers.array_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
   }
 
-  return fmt::format("&{}",
-    ensure_emitted(ctx.trackers.scalar_tracker, value, ctx.lines, [&] { return emit_scalar_value(value); }));
+  return fmt::format("&s[{}]", ctx.trackers.scalar_tracker.get_pool_index(value));
 }
 
 std::string make_blob_literal(const nlohmann::ordered_json &value)
@@ -587,6 +590,13 @@ namespace compiled_json::{}::impl {{
     #endif)");
     results.impl.emplace_back("  using blob_ref_value_pair_t = json2cpp::basic_blob_ref_value_pair_t<basicType>;");
     results.impl.emplace_back("  using blob_ref_object_t = json2cpp::basic_blob_ref_object_t<basicType>;");
+  }
+  if (!trackers.scalar_tracker.pooled_values.empty()) {
+    results.impl.emplace_back("  constexpr json s[] = {");
+    for (const auto &value : trackers.scalar_tracker.pooled_values) {
+      results.impl.emplace_back(fmt::format("    json{{{{ {} }}}},", emit_scalar_value(value)));
+    }
+    results.impl.emplace_back("  };");
   }
   results.impl.insert(results.impl.end(), impl_body.begin(), impl_body.end());
 
