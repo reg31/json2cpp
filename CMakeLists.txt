@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.28)
 
 # This template attempts to be "fetch_content"-able
 # so that it works well with tools like CPM or other
@@ -17,7 +17,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 # Set the project name and language
 project(
   json2cpp
-  VERSION 4.2
+  VERSION 4.3
   DESCRIPTION ""
   HOMEPAGE_URL "%%myurl%%"
   LANGUAGES CXX C)
