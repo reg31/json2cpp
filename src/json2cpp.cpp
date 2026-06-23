@@ -23,13 +23,14 @@ SOFTWARE.
 */
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <fmt/format.h>
 #include <fstream>
 #include <functional>
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <set>
 #include <spdlog/spdlog.h>
@@ -68,30 +69,21 @@ std::string escape_string(const std::string &str)
   result.reserve(str.size());
   for (char c : str) {
     switch (c) {
-    case '"':
-      result += "\\\"";
-      break;
-    case '\\':
-      result += "\\\\";
-      break;
-    case '\n':
-      result += "\\n";
-      break;
-    case '\r':
-      result += "\\r";
-      break;
-    case '\t':
-      result += "\\t";
-      break;
-    default:
-      result += c;
-      break;
+    case '"': result += "\\\""; break;
+    case '\\': result += "\\\\"; break;
+    case '\n': result += "\\n"; break;
+    case '\r': result += "\\r"; break;
+    case '\t': result += "\\t"; break;
+    default: result += c; break;
     }
   }
   return result;
 }
 
-std::string format_json_string(const std::string &str) { return fmt::format("RAW_PREFIX(\"{}\")", escape_string(str)); }
+std::string format_json_string(const std::string &str)
+{
+  return fmt::format("RAW_PREFIX(\"{}\")", escape_string(str));
+}
 
 uint32_t finalize_json_hash(uint32_t h)
 {
@@ -160,17 +152,6 @@ size_t utf16_length(std::string_view str)
   return length;
 }
 
-std::string emit_hash_literal(const std::string &str)
-{
-  return fmt::format("J2H({}, {})", hash_utf8(str), hash_utf16(str));
-}
-
-std::string emit_size_literal(size_t utf8_size, size_t utf16_size)
-{
-  if (utf8_size == utf16_size) return fmt::format("{}", utf8_size);
-  return fmt::format("J2D({}, {})", utf8_size, utf8_size - utf16_size);
-}
-
 inline void hash_combine(std::size_t &seed, std::size_t value)
 {
   seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
@@ -233,7 +214,8 @@ struct ReuseTrackerBase
 
   explicit ReuseTrackerBase(std::string p) : prefix(std::move(p)) {}
 
-  template<typename Predicate> void prepare_reuse_variables(Predicate should_share)
+  template<typename Predicate>
+  void prepare_reuse_variables(Predicate should_share)
   {
     for (const auto &[value, count] : counts) {
       if (should_share(count)) value_to_var[value] = fmt::format("{}{}", prefix, counter++);
@@ -265,10 +247,7 @@ struct DuplicateTracker : ReuseTrackerBase
     if ((value.is_object() || value.is_array()) && value.size() >= min_size) { ++counts[value]; }
   }
 
-  void prepare_variables()
-  {
-    prepare_reuse_variables([](int count) { return count > 1; });
-  }
+  void prepare_variables() { prepare_reuse_variables([](int count) { return count > 1; }); }
 };
 
 struct ScalarTracker : ReuseTrackerBase
@@ -279,10 +258,7 @@ struct ScalarTracker : ReuseTrackerBase
 
   using ReuseTrackerBase::ReuseTrackerBase;
 
-  void track(const nlohmann::ordered_json &value)
-  {
-    if (value.is_string()) ++counts[value];
-  }
+  void track(const nlohmann::ordered_json &value) { if (value.is_string()) ++counts[value]; }
 
   void prepare_variables()
   {
@@ -297,17 +273,17 @@ struct ScalarTracker : ReuseTrackerBase
   std::uint32_t get_pool_index(const nlohmann::ordered_json &value) const { return value_to_index.at(value); }
 
   int use_count(const nlohmann::ordered_json &value) const
-  {
-    const auto it = counts.find(value);
-    return it == counts.end() ? 0 : it->second;
-  }
+  { const auto it = counts.find(value); return it == counts.end() ? 0 : it->second; }
 };
 
-enum class ObjectLayout {
+enum class ObjectLayout
+{
   Regular,
   CompactInline,
   ValueByReference,
   BlobByReference,
+  PerfectHashBlobByReference,
+  IndexedPerfectHashBlobByReference,
 };
 
 struct KeyLayoutTracker
@@ -385,7 +361,24 @@ struct TrackerSet
   ScalarTracker scalar_tracker{ "s" };
 };
 
-void analyze_json(const nlohmann::ordered_json &value, TrackerSet &trackers)
+struct Mphf8Plan
+{
+  std::vector<std::uint8_t> displacements;
+  std::vector<std::uint8_t> slots;
+  std::uint8_t bucket_count = 0;
+  std::uint8_t seed1 = 0;
+  std::uint8_t seed2 = 0;
+};
+
+struct Mphf8TableInfo
+{
+  std::string name;
+  Mphf8Plan utf8;
+  Mphf8Plan utf16;
+};
+
+void analyze_json(const nlohmann::ordered_json &value,
+  TrackerSet &trackers)
 {
   if (value.is_object()) {
     trackers.object_tracker.track(value);
@@ -406,12 +399,17 @@ struct EmitContext
     bool uses_compact_inline = false;
     bool uses_value_ref = false;
     bool uses_blob_ref = false;
+    bool uses_mphf8_blob_ref = false;
+    bool uses_indexed_mphf8_blob_ref = false;
+    bool uses_scalar_pool = false;
   };
 
   std::size_t &node_count;
   std::vector<std::string> &lines;
   TrackerSet &trackers;
   LayoutUsage &layout_usage;
+  std::unordered_map<std::string, Mphf8TableInfo> mphf8_tables;
+  std::size_t mphf8_table_count = 0;
 };
 
 std::string emit_value(const nlohmann::ordered_json &value, EmitContext &ctx);
@@ -442,10 +440,11 @@ std::string emit_scalar_value(const nlohmann::ordered_json &value)
   return "unhandled";
 }
 
-std::string emit_value_hash(const nlohmann::ordered_json &value)
+std::pair<std::uint32_t, std::uint32_t> value_hashes(const nlohmann::ordered_json &value)
 {
-  if (!value.is_string()) return "0u";
-  return emit_hash_literal(value.get<std::string>());
+  if (!value.is_string()) return { 0u, 0u };
+  const auto str = value.get<std::string>();
+  return { hash_utf8(str), hash_utf16(str) };
 }
 
 double estimate_value_ref_entry_savings(const nlohmann::ordered_json &value, const EmitContext &ctx)
@@ -459,15 +458,256 @@ double estimate_value_ref_entry_savings(const nlohmann::ordered_json &value, con
   return 8.0 - (16.0 / value_count);
 }
 
+bool can_use_indexed_mphf_values(const nlohmann::ordered_json &value, const EmitContext &ctx)
+{
+  if (!value.is_object()) return false;
+  if (ctx.trackers.scalar_tracker.pooled_values.size() > 0xFFFFu) return false;
+  std::size_t key_offset = 0;
+  for (auto itr = value.begin(); itr != value.end(); ++itr) {
+    if (!itr.value().is_string() || !ctx.trackers.scalar_tracker.is_shared(itr.value())) return false;
+    if (ctx.trackers.scalar_tracker.get_pool_index(itr.value()) > 0xFFu) return false;
+    if (itr.key().size() > 0xFFu) return false;
+    key_offset += itr.key().size();
+    if (key_offset > 0xFFFFu) return false;
+  }
+  return true;
+}
+
 bool can_use_blob_keys(const nlohmann::ordered_json &value)
 {
   std::size_t offset = 0;
   for (auto itr = value.begin(); itr != value.end(); ++itr) {
     if (itr.key().size() >= 4096) return false;
     offset += itr.key().size();
-    if (offset >= (std::size_t{ 1 } << 16)) return false;
+    if (offset >= (std::size_t{1} << 16)) return false;
   }
   return true;
+}
+
+std::uint32_t mphf_mix(std::uint32_t value, const std::uint32_t seed)
+{
+  value ^= seed + 0x9e3779b9u + (value << 6u) + (value >> 2u);
+  value ^= value >> 16u;
+  value *= 0x7feb352du;
+  value ^= value >> 15u;
+  value *= 0x846ca68bu;
+  value ^= value >> 16u;
+  return value;
+}
+
+bool try_build_mphf8_plan(const std::vector<std::uint32_t> &hashes,
+  Mphf8Plan &plan,
+  const std::uint8_t bucket_count,
+  const std::uint8_t seed1,
+  const std::uint8_t seed2)
+{
+  const auto size = static_cast<std::uint8_t>(hashes.size());
+  std::vector<std::vector<std::uint8_t>> buckets(bucket_count);
+  for (std::uint8_t i = 0; i < size; ++i) buckets[mphf_mix(hashes[i], seed1) % bucket_count].emplace_back(i);
+
+  std::vector<std::uint8_t> order(bucket_count);
+  for (std::uint8_t i = 0; i < bucket_count; ++i) order[i] = i;
+  std::sort(order.begin(), order.end(), [&](auto lhs, auto rhs) { return buckets[lhs].size() > buckets[rhs].size(); });
+
+  std::vector<bool> used(size, false);
+  plan.displacements.assign(bucket_count, 0);
+  plan.slots.assign(size, 0xFFu);
+  std::array<std::uint16_t, 256> trial_used{};
+  std::uint16_t trial_generation = 1;
+  for (const auto bucket_index : order) {
+    const auto &bucket = buckets[bucket_index];
+    if (bucket.empty()) continue;
+
+    bool placed = false;
+    for (std::uint16_t displacement = 0; displacement < size && !placed; ++displacement) {
+      std::vector<std::uint8_t> trial;
+      trial.reserve(bucket.size());
+      bool collision = false;
+      for (const auto key_index : bucket) {
+        const auto slot = static_cast<std::uint8_t>((mphf_mix(hashes[key_index], seed2) + displacement) % size);
+        if (used[slot] || trial_used[slot] == trial_generation) {
+          collision = true;
+          break;
+        }
+        trial_used[slot] = trial_generation;
+        trial.emplace_back(slot);
+      }
+      ++trial_generation;
+      if (collision) continue;
+
+      plan.displacements[bucket_index] = static_cast<std::uint8_t>(displacement);
+      for (std::size_t i = 0; i < bucket.size(); ++i) {
+        used[trial[i]] = true;
+        plan.slots[trial[i]] = bucket[i];
+      }
+      placed = true;
+    }
+    if (!placed) return false;
+  }
+
+  plan.bucket_count = bucket_count;
+  plan.seed1 = seed1;
+  plan.seed2 = seed2;
+  return true;
+}
+
+bool build_mphf8_plan(const nlohmann::ordered_json &value, const bool utf16, Mphf8Plan &plan)
+{
+  constexpr std::size_t min_mphf_size = 64;
+  constexpr std::size_t max_mphf_attempts = 1'000'000;
+  if (!value.is_object() || value.size() < min_mphf_size || value.size() > 0xFFu) return false;
+
+  std::vector<std::uint32_t> hashes;
+  hashes.reserve(value.size());
+  for (auto itr = value.begin(); itr != value.end(); ++itr) {
+    const auto hash = utf16 ? hash_utf16(itr.key()) : hash_utf8(itr.key());
+    if (std::ranges::contains(hashes, hash)) return false;
+    hashes.emplace_back(hash);
+  }
+
+  const auto size = static_cast<std::uint8_t>(value.size());
+  const auto min_buckets = static_cast<std::uint8_t>((value.size() + 2u) / 3u);
+  std::size_t attempts = 0;
+  for (std::uint16_t bucket_count = min_buckets; bucket_count <= size; ++bucket_count)
+    for (std::uint16_t seed1 = 0; seed1 <= 0xFFu; ++seed1)
+      for (std::uint16_t seed2 = 0; seed2 <= 0xFFu; ++seed2) {
+        if (++attempts > max_mphf_attempts) return false;
+        if (try_build_mphf8_plan(hashes,
+              plan,
+              static_cast<std::uint8_t>(bucket_count),
+              static_cast<std::uint8_t>(seed1),
+              static_cast<std::uint8_t>(seed2)))
+          return true;
+      }
+  return false;
+}
+
+std::string emit_uint8_array(const std::vector<std::uint8_t> &values)
+{
+  std::string result = "{";
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i != 0) result += ", ";
+    result += std::to_string(values[i]);
+  }
+  result += "}";
+  return result;
+}
+
+void emit_mphf8_table_array(const std::string &table_name,
+  const Mphf8Plan &plan,
+  std::vector<std::string> &lines)
+{
+  std::vector<std::uint8_t> values;
+  values.reserve(plan.displacements.size() + plan.slots.size());
+  values.insert(values.end(), plan.displacements.begin(), plan.displacements.end());
+  values.insert(values.end(), plan.slots.begin(), plan.slots.end());
+  lines.emplace_back(fmt::format("constexpr std::uint8_t {}[] = {};", table_name, emit_uint8_array(values)));
+}
+
+void emit_mphf8_table_arrays(const std::string &table_name,
+  const Mphf8Plan &utf8_plan,
+  const Mphf8Plan &utf16_plan,
+  std::vector<std::string> &lines)
+{
+  lines.emplace_back("#ifdef JSON2CPP_USE_UTF16");
+  emit_mphf8_table_array(table_name, utf16_plan, lines);
+  lines.emplace_back("#else");
+  emit_mphf8_table_array(table_name, utf8_plan, lines);
+  lines.emplace_back("#endif");
+}
+
+std::uint64_t make_mphf_prefix_mask(const nlohmann::ordered_json &value, const bool utf16)
+{
+  constexpr std::size_t linear_prefix = 16;
+  std::uint64_t mask = 0;
+  std::size_t index = 0;
+  for (auto itr = value.begin(); itr != value.end() && index < linear_prefix; ++itr, ++index) {
+    const auto hash = utf16 ? hash_utf16(itr.key()) : hash_utf8(itr.key());
+    mask |= std::uint64_t{1} << (hash & 63u);
+  }
+  return mask;
+}
+
+const Mphf8TableInfo &ensure_mphf8_table(const nlohmann::ordered_json &value,
+  const Mphf8Plan &utf8_plan,
+  const Mphf8Plan &utf16_plan,
+  EmitContext &ctx)
+{
+  auto [it, inserted] = ctx.mphf8_tables.try_emplace(KeyLayoutTracker::make_layout_signature(value));
+  if (inserted) {
+    it->second.name = fmt::format("h{}", ctx.mphf8_table_count++);
+    it->second.utf8 = utf8_plan;
+    it->second.utf16 = utf16_plan;
+    emit_mphf8_table_arrays(it->second.name, it->second.utf8, it->second.utf16, ctx.lines);
+  }
+  return it->second;
+}
+
+void emit_mphf8_descriptor(const std::string &node_name,
+  const std::size_t size,
+  const std::uint64_t utf8_prefix_mask,
+  const std::uint64_t utf16_prefix_mask,
+  const Mphf8TableInfo &table,
+  std::vector<std::string> &lines)
+{
+  lines.emplace_back(fmt::format("extern const blob_pair_t {}[];", node_name));
+  lines.emplace_back("#ifdef JSON2CPP_USE_UTF16");
+  lines.emplace_back(fmt::format("constexpr mphf8_blob_object_t {}_mphf{{{} + 2, {}, {}, {}, {}, {}, 0x{:016x}ull}};",
+    node_name,
+    node_name,
+    table.name,
+    size,
+    table.utf16.bucket_count,
+    table.utf16.seed1,
+    table.utf16.seed2,
+    utf16_prefix_mask));
+  lines.emplace_back("#else");
+  lines.emplace_back(fmt::format("constexpr mphf8_blob_object_t {}_mphf{{{} + 2, {}, {}, {}, {}, {}, 0x{:016x}ull}};",
+    node_name,
+    node_name,
+    table.name,
+    size,
+    table.utf8.bucket_count,
+    table.utf8.seed1,
+    table.utf8.seed2,
+    utf8_prefix_mask));
+  lines.emplace_back("#endif");
+}
+
+void emit_indexed_mphf8_descriptor(const std::string &node_name,
+  const std::size_t size,
+  const std::uint64_t utf8_prefix_mask,
+  const std::uint64_t utf16_prefix_mask,
+  const Mphf8TableInfo &table,
+  std::vector<std::string> &lines)
+{
+  lines.emplace_back("#ifdef JSON2CPP_USE_UTF16");
+  lines.emplace_back(fmt::format("constexpr indexed_mphf8_blob_object_t {}_mphf{{{}.entries.data(), {}_keys, s, {}.value_hashes.data(), {}.prefix_hashes.data(), {}, {}, {}, {}, {}, 0x{:016x}ull}};",
+    node_name,
+    node_name,
+    node_name,
+    node_name,
+    node_name,
+    table.name,
+    size,
+    table.utf16.bucket_count,
+    table.utf16.seed1,
+    table.utf16.seed2,
+    utf16_prefix_mask));
+  lines.emplace_back("#else");
+  lines.emplace_back(fmt::format("constexpr indexed_mphf8_blob_object_t {}_mphf{{{}.entries.data(), {}_keys, s, {}.value_hashes.data(), {}.prefix_hashes.data(), {}, {}, {}, {}, {}, 0x{:016x}ull}};",
+    node_name,
+    node_name,
+    node_name,
+    node_name,
+    node_name,
+    table.name,
+    size,
+    table.utf8.bucket_count,
+    table.utf8.seed1,
+    table.utf8.seed2,
+    utf8_prefix_mask));
+  lines.emplace_back("#endif");
 }
 
 ObjectLayout choose_object_layout(const nlohmann::ordered_json &value, const EmitContext &ctx)
@@ -488,9 +728,10 @@ ObjectLayout choose_object_layout(const nlohmann::ordered_json &value, const Emi
   }
 
   const auto blob_ref_savings = value_ref_possible && can_use_blob_keys(value)
-                                  ? value_ref_savings + (static_cast<double>(value.size()) * 8.0) - 16.0
-                                  : -1.0e18;
-  if (blob_ref_savings >= ctx.trackers.key_tracker.min_compact_savings && blob_ref_savings > value_ref_savings
+    ? value_ref_savings + (static_cast<double>(value.size()) * 8.0) - 16.0
+    : -1.0e18;
+  if (blob_ref_savings >= ctx.trackers.key_tracker.min_compact_savings
+      && blob_ref_savings > value_ref_savings
       && blob_ref_savings > inline_savings)
     return ObjectLayout::BlobByReference;
   if (value_ref_possible && value_ref_savings >= ctx.trackers.key_tracker.min_compact_savings
@@ -503,44 +744,130 @@ ObjectLayout choose_object_layout(const nlohmann::ordered_json &value, const Emi
 std::string emit_value_reference(const nlohmann::ordered_json &value, EmitContext &ctx)
 {
   if (value.is_object() && ctx.trackers.object_tracker.is_shared(value)) {
-    return fmt::format(
-      "&{}", ensure_emitted(ctx.trackers.object_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
+    return fmt::format("&{}",
+      ensure_emitted(ctx.trackers.object_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
   }
 
   if (value.is_array() && ctx.trackers.array_tracker.is_shared(value)) {
-    return fmt::format(
-      "&{}", ensure_emitted(ctx.trackers.array_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
+    return fmt::format("&{}",
+      ensure_emitted(ctx.trackers.array_tracker, value, ctx.lines, [&] { return emit_node_body(value, ctx); }));
   }
 
+  ctx.layout_usage.uses_scalar_pool = true;
   return fmt::format("&s[{}]", ctx.trackers.scalar_tracker.get_pool_index(value));
 }
 
 std::string make_blob_literal(const nlohmann::ordered_json &value)
 {
-  std::string result;
+  std::string result = "J2C(";
   for (auto itr = value.begin(); itr != value.end(); ++itr) {
-    result += fmt::format("J2C(\"{}\")", escape_string(itr.key()));
+    result += fmt::format("\"{}\"", escape_string(itr.key()));
   }
-  return result.empty() ? "J2C(\"\")" : result;
+  result += ")";
+  return value.empty() ? "J2C(\"\")" : result;
+}
+
+std::string scalar_pool_index(std::string_view value_ref)
+{
+  constexpr std::string_view prefix = "&s[";
+  if (!value_ref.starts_with(prefix) || !value_ref.ends_with(']')) return {};
+  return std::string(value_ref.substr(prefix.size(), value_ref.size() - prefix.size() - 1u));
+}
+
+std::string join_strings(const std::vector<std::string> &values)
+{
+  std::string result;
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i != 0) result += ", ";
+    result += values[i];
+  }
+  return result;
+}
+
+std::string emit_uint8_std_array(const std::vector<std::uint8_t> &values)
+{
+  std::vector<std::string> parts;
+  parts.reserve(values.size());
+  for (const auto value : values) parts.emplace_back(std::to_string(value));
+  return fmt::format("std::array<std::uint8_t, {}>{{{}}}", values.size(), join_strings(parts));
+}
+
+std::string emit_blob_entry(const std::string &value_ref,
+  const nlohmann::ordered_json &value,
+  const std::string &key,
+  const std::size_t key_offset,
+  const std::size_t utf16_key_offset)
+{
+  const auto utf16_key_length = utf16_length(key);
+  const auto [value_hash_utf8, value_hash_utf16] = value_hashes(value);
+  const auto pool_index = scalar_pool_index(value_ref);
+  const auto macro_name = pool_index.empty() ? "J2B" : "J2BS";
+  const auto macro_value = pool_index.empty() ? value_ref : pool_index;
+  return fmt::format("{}({}, {}, {}, {}, {}, {}, {}, {}, {}),",
+    macro_name,
+    macro_value,
+    key_offset,
+    key_offset - utf16_key_offset,
+    key.size(),
+    key.size() - utf16_key_length,
+    hash_utf8(key),
+    hash_utf16(key),
+    value_hash_utf8,
+    value_hash_utf16);
 }
 
 std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, const std::string &node_name)
 {
-  const auto layout = choose_object_layout(value, ctx);
+  auto layout = choose_object_layout(value, ctx);
+  Mphf8Plan utf8_mphf, utf16_mphf;
+  const bool use_mphf = layout == ObjectLayout::BlobByReference
+                     && build_mphf8_plan(value, false, utf8_mphf)
+                     && build_mphf8_plan(value, true, utf16_mphf);
+  if (use_mphf)
+    layout = can_use_indexed_mphf_values(value, ctx) ? ObjectLayout::IndexedPerfectHashBlobByReference
+                                                     : ObjectLayout::PerfectHashBlobByReference;
+
   if (layout == ObjectLayout::CompactInline) ctx.layout_usage.uses_compact_inline = true;
   if (layout == ObjectLayout::ValueByReference) ctx.layout_usage.uses_value_ref = true;
-  if (layout == ObjectLayout::BlobByReference) ctx.layout_usage.uses_blob_ref = true;
+  if (layout == ObjectLayout::BlobByReference || layout == ObjectLayout::PerfectHashBlobByReference)
+    ctx.layout_usage.uses_blob_ref = true;
+  if (layout == ObjectLayout::PerfectHashBlobByReference) ctx.layout_usage.uses_mphf8_blob_ref = true;
+  if (layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
+    ctx.layout_usage.uses_indexed_mphf8_blob_ref = true;
+    ctx.layout_usage.uses_scalar_pool = true;
+  }
 
   std::vector<std::string> entries;
-  entries.reserve(value.size() + (layout == ObjectLayout::BlobByReference ? 1u : 0u));
+  entries.reserve(value.size()
+                + (layout == ObjectLayout::PerfectHashBlobByReference ? 2u
+                   : layout == ObjectLayout::BlobByReference           ? 1u
+                                                                        : 0u));
 
-  if (layout == ObjectLayout::BlobByReference) {
+  if (layout == ObjectLayout::BlobByReference || layout == ObjectLayout::PerfectHashBlobByReference
+      || layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
     ctx.lines.emplace_back(fmt::format("constexpr basicType {}_keys[] = {};", node_name, make_blob_literal(value)));
-    entries.emplace_back(fmt::format("blob_pair_t{{{}_keys, blob_pair_t::header_t{{}}}},", node_name));
+    if (layout == ObjectLayout::PerfectHashBlobByReference) {
+      emit_mphf8_descriptor(node_name,
+        value.size(),
+        make_mphf_prefix_mask(value, false),
+        make_mphf_prefix_mask(value, true),
+        ensure_mphf8_table(value, utf8_mphf, utf16_mphf, ctx),
+        ctx.lines);
+      entries.emplace_back(fmt::format("blob_pair_t{{&{}_mphf, blob_pair_t::header_t{{}}}},", node_name));
+    }
+    if (layout != ObjectLayout::IndexedPerfectHashBlobByReference) {
+      entries.emplace_back(fmt::format("blob_pair_t{{{}_keys, blob_pair_t::header_t{{}}}},", node_name));
+    }
   }
 
   std::size_t key_offset = 0;
   std::size_t utf16_key_offset = 0;
+  std::vector<std::string> indexed_lengths;
+  std::vector<std::uint8_t> indexed_value_indices;
+  if (layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
+    indexed_lengths.reserve(value.size());
+    indexed_value_indices.reserve(value.size());
+  }
   for (auto itr = value.begin(); itr != value.end(); ++itr) {
     if (layout == ObjectLayout::CompactInline) {
       const auto value_repr = emit_value(itr.value(), ctx);
@@ -549,39 +876,60 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
     } else if (layout == ObjectLayout::ValueByReference) {
       entries.emplace_back(
         fmt::format("ref_pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value_reference(itr.value(), ctx)));
-    } else if (layout == ObjectLayout::BlobByReference) {
+    } else if (layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
       const auto utf16_key_length = utf16_length(itr.key());
-      entries.emplace_back(fmt::format("blob_pair_t{{{}, {}, {}, {}, {}}},",
-        emit_value_reference(itr.value(), ctx),
-        emit_size_literal(key_offset, utf16_key_offset),
-        emit_size_literal(itr.key().size(), utf16_key_length),
-        emit_hash_literal(itr.key()),
-        emit_value_hash(itr.value())));
+      indexed_lengths.emplace_back(fmt::format("J2D({}, {})", itr.key().size(), itr.key().size() - utf16_key_length));
+      indexed_value_indices.emplace_back(
+        static_cast<std::uint8_t>(ctx.trackers.scalar_tracker.get_pool_index(itr.value())));
+      key_offset += itr.key().size();
+      utf16_key_offset += utf16_key_length;
+    } else if (layout == ObjectLayout::BlobByReference || layout == ObjectLayout::PerfectHashBlobByReference) {
+      entries.emplace_back(emit_blob_entry(emit_value_reference(itr.value(), ctx),
+        itr.value(),
+        itr.key(),
+        key_offset,
+        utf16_key_offset));
+      const auto utf16_key_length = utf16_length(itr.key());
       key_offset += itr.key().size();
       utf16_key_offset += utf16_key_length;
     } else {
-      entries.emplace_back(
-        fmt::format("pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value(itr.value(), ctx)));
+      entries.emplace_back(fmt::format("pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value(itr.value(), ctx)));
     }
   }
 
-  if (layout == ObjectLayout::CompactInline) {
-    ctx.lines.emplace_back(fmt::format("constexpr compact_pair_t {}[] = {{", node_name));
-  } else if (layout == ObjectLayout::ValueByReference) {
-    ctx.lines.emplace_back(fmt::format("constexpr ref_pair_t {}[] = {{", node_name));
-  } else if (layout == ObjectLayout::BlobByReference) {
-    ctx.lines.emplace_back(fmt::format("constexpr blob_pair_t {}[] = {{", node_name));
-  } else {
-    ctx.lines.emplace_back(fmt::format("constexpr pair_t {}[] = {{", node_name));
+  if (layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
+    ctx.lines.emplace_back(fmt::format(
+      "constexpr auto {} = json2cpp::detail::make_indexed_blob_storage({}_keys, std::array<std::uint16_t, {}>{{{}}}, {}, s);",
+      node_name,
+      node_name,
+      indexed_lengths.size(),
+      join_strings(indexed_lengths),
+      emit_uint8_std_array(indexed_value_indices)));
+    emit_indexed_mphf8_descriptor(node_name,
+      value.size(),
+      make_mphf_prefix_mask(value, false),
+      make_mphf_prefix_mask(value, true),
+      ensure_mphf8_table(value, utf8_mphf, utf16_mphf, ctx),
+      ctx.lines);
+    return fmt::format("&{}_mphf", node_name);
   }
+
+  const auto entry_type = layout == ObjectLayout::CompactInline ? "compact_pair_t"
+                        : layout == ObjectLayout::ValueByReference ? "ref_pair_t"
+                        : layout == ObjectLayout::BlobByReference || layout == ObjectLayout::PerfectHashBlobByReference
+                        ? "blob_pair_t"
+                        : "pair_t";
+  ctx.lines.emplace_back(fmt::format("constexpr {} {}[] = {{", entry_type, node_name));
 
   for (const auto &entry : entries) { ctx.lines.emplace_back(fmt::format("  {}", entry)); }
   ctx.lines.emplace_back("};");
-  if (layout == ObjectLayout::CompactInline) return fmt::format("compact_object_t{{{}}}", node_name);
-  if (layout == ObjectLayout::ValueByReference) return fmt::format("ref_value_object_t{{{}}}", node_name);
-  if (layout == ObjectLayout::BlobByReference)
-    return fmt::format("blob_object_t{{{} + 1, {}}}", node_name, value.size());
-  return fmt::format("object_t{{{}}}", node_name);
+  if (layout == ObjectLayout::PerfectHashBlobByReference) return fmt::format("&{}_mphf", node_name);
+  const auto object_type = layout == ObjectLayout::CompactInline ? "compact_object_t"
+                         : layout == ObjectLayout::ValueByReference ? "ref_value_object_t"
+                         : layout == ObjectLayout::BlobByReference ? "blob_object_t"
+                                                                   : "object_t";
+  if (layout == ObjectLayout::BlobByReference) return fmt::format("{}{{{} + 1, {}}}", object_type, node_name, value.size());
+  return fmt::format("{}{{{}}}", object_type, node_name);
 }
 
 std::string emit_array(const nlohmann::ordered_json &value, EmitContext &ctx, const std::string &node_name)
@@ -679,20 +1027,37 @@ namespace compiled_json::{}::impl {{
     results.impl.emplace_back("  using ref_pair_t = json2cpp::basic_ref_value_pair_t<basicType>;");
     results.impl.emplace_back("  using ref_value_object_t = json2cpp::basic_ref_value_object_t<basicType>;");
   }
-  if (layout_usage.uses_blob_ref) {
+  if (layout_usage.uses_blob_ref || layout_usage.uses_indexed_mphf8_blob_ref) {
     results.impl.emplace_back(R"(  #ifdef JSON2CPP_USE_UTF16
   #define J2C(str) u"" str
-  #define J2H(utf8_hash, utf16_hash) utf16_hash
   #define J2D(utf8_size, utf16_delta) (utf8_size - utf16_delta)
   #else
   #define J2C(str) str
-  #define J2H(utf8_hash, utf16_hash) utf8_hash
   #define J2D(utf8_size, utf16_delta) utf8_size
     #endif)");
+  }
+  if (layout_usage.uses_blob_ref) {
+    results.impl.emplace_back(R"(  #ifdef JSON2CPP_USE_UTF16
+  #define J2H(utf8_hash, utf16_hash) utf16_hash
+  #else
+  #define J2H(utf8_hash, utf16_hash) utf8_hash
+    #endif)");
+    results.impl.emplace_back(
+      "  #define J2B(value, offset, offset_delta, length, length_delta, hash_utf8, hash_utf16, value_hash_utf8, value_hash_utf16) "
+      "blob_pair_t{value, J2D(offset, offset_delta), J2D(length, length_delta), J2H(hash_utf8, hash_utf16), "
+      "J2H(value_hash_utf8, value_hash_utf16)}");
+    results.impl.emplace_back("  #define J2BS(value_index, ...) J2B(&s[value_index], __VA_ARGS__)");
     results.impl.emplace_back("  using blob_pair_t = json2cpp::basic_blob_ref_value_pair_t<basicType>;");
     results.impl.emplace_back("  using blob_object_t = json2cpp::basic_blob_ref_object_t<basicType>;");
+    if (layout_usage.uses_mphf8_blob_ref) {
+      results.impl.emplace_back("  using mphf8_blob_object_t = json2cpp::detail::basic_mphf8_blob_ref_object_t<basicType>;");
+    }
   }
-  if (!trackers.scalar_tracker.pooled_values.empty()) {
+  if (layout_usage.uses_indexed_mphf8_blob_ref) {
+    results.impl.emplace_back(
+      "  using indexed_mphf8_blob_object_t = json2cpp::detail::basic_indexed_mphf8_blob_ref_object_t<basicType>;");
+  }
+  if (layout_usage.uses_scalar_pool && !trackers.scalar_tracker.pooled_values.empty()) {
     results.impl.emplace_back("  constexpr json s[] = {");
     for (const auto &value : trackers.scalar_tracker.pooled_values) {
       results.impl.emplace_back(fmt::format("    json{{{{ {} }}}},", emit_scalar_value(value)));
@@ -725,7 +1090,7 @@ namespace compiled_json::{}::impl {{
   return results;
 }
 
-}// namespace
+}
 
 std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::vector<std::string> &lines)
 {
