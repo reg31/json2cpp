@@ -69,11 +69,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      
       - name: Configure CMake
         run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }}
       
