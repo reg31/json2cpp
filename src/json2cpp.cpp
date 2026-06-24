@@ -94,8 +94,8 @@ uint32_t finalize_json_hash(uint32_t h)
 uint32_t hash_utf8(std::string_view str)
 {
   uint32_t h = 0x811c9dc5u;
-  for (const unsigned char c : str) {
-    h ^= c;
+  for (const char c : str) {
+    h ^= static_cast<uint8_t>(c);
     h *= 0x01000193u;
   }
   return finalize_json_hash(h);
@@ -204,6 +204,14 @@ struct JsonEqual
   bool operator()(const nlohmann::ordered_json &a, const nlohmann::ordered_json &b) const { return a == b; }
 };
 
+struct StringHash
+{
+  using is_transparent = void;
+
+  std::size_t operator()(std::string_view value) const noexcept { return std::hash<std::string_view>{}(value); }
+  std::size_t operator()(const std::string &value) const noexcept { return (*this)(std::string_view{ value }); }
+};
+
 struct ReuseTrackerBase
 {
   std::unordered_map<nlohmann::ordered_json, int, JsonHasher, JsonEqual> counts;
@@ -288,9 +296,9 @@ enum class ObjectLayout
 
 struct KeyLayoutTracker
 {
-  std::unordered_map<std::string, std::size_t> layout_counts;
-  std::unordered_map<std::string, std::size_t> key_counts;
-  std::unordered_map<std::string, std::string> key_to_var;
+  std::unordered_map<std::string, std::size_t, StringHash, std::equal_to<>> layout_counts;
+  std::unordered_map<std::string, std::size_t, StringHash, std::equal_to<>> key_counts;
+  std::unordered_map<std::string, std::string, StringHash, std::equal_to<>> key_to_var;
   std::set<std::string> emitted_keys;
   std::size_t counter = 0;
   double min_compact_savings = 64.0;
@@ -315,7 +323,7 @@ struct KeyLayoutTracker
 
   std::size_t key_use_count(std::string_view key) const
   {
-    const auto it = key_counts.find(std::string(key));
+    const auto it = key_counts.find(key);
     return it == key_counts.end() ? 0 : it->second;
   }
 
@@ -513,6 +521,7 @@ bool try_build_mphf8_plan(const std::vector<std::uint32_t> &hashes,
   plan.displacements.assign(bucket_count, 0);
   plan.slots.assign(size, 0xFFu);
   std::array<std::uint16_t, 256> trial_used{};
+  // At most 255 * 255 generations happen per call, so this cannot wrap.
   std::uint16_t trial_generation = 1;
   for (const auto bucket_index : order) {
     const auto &bucket = buckets[bucket_index];
@@ -520,8 +529,6 @@ bool try_build_mphf8_plan(const std::vector<std::uint32_t> &hashes,
 
     bool placed = false;
     for (std::uint16_t displacement = 0; displacement < size && !placed; ++displacement) {
-      std::vector<std::uint8_t> trial;
-      trial.reserve(bucket.size());
       bool collision = false;
       for (const auto key_index : bucket) {
         const auto slot = static_cast<std::uint8_t>((mphf_mix(hashes[key_index], seed2) + displacement) % size);
@@ -530,15 +537,15 @@ bool try_build_mphf8_plan(const std::vector<std::uint32_t> &hashes,
           break;
         }
         trial_used[slot] = trial_generation;
-        trial.emplace_back(slot);
       }
       ++trial_generation;
       if (collision) continue;
 
       plan.displacements[bucket_index] = static_cast<std::uint8_t>(displacement);
-      for (std::size_t i = 0; i < bucket.size(); ++i) {
-        used[trial[i]] = true;
-        plan.slots[trial[i]] = bucket[i];
+      for (const auto key_index : bucket) {
+        const auto slot = static_cast<std::uint8_t>((mphf_mix(hashes[key_index], seed2) + displacement) % size);
+        used[slot] = true;
+        plan.slots[slot] = key_index;
       }
       placed = true;
     }
@@ -1013,7 +1020,7 @@ namespace compiled_json::{}::impl {{
     document_name));
 
   std::size_t node_count = 0;
-  EmitContext ctx{ node_count, impl_body, trackers, layout_usage };
+  EmitContext ctx{ node_count, impl_body, trackers, layout_usage, {}, 0 };
   const auto root_repr = emit_value(json, ctx);
 
   if (trackers.key_tracker.descriptor_count() != 0) {
@@ -1098,7 +1105,7 @@ std::string compile(const nlohmann::json &value, std::size_t &obj_count, std::ve
   const nlohmann::ordered_json ordered = value;
   auto trackers = build_trackers(ordered);
 
-  EmitContext ctx{ obj_count, lines, trackers, layout_usage };
+  EmitContext ctx{ obj_count, lines, trackers, layout_usage, {}, 0 };
   return emit_value(ordered, ctx);
 }
 
