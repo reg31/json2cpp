@@ -25,7 +25,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET Catch2::Catch2WithMain)
-    cpmaddpackage("gh:catchorg/Catch2@3.15.1")
+    cpmaddpackage("gh:catchorg/Catch2@3.15.2")
   endif()
 
   if(NOT TARGET CLI11::CLI11)
@@ -33,7 +33,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET ftxui::screen)
-    cpmaddpackage("gh:ArthurSonzogni/FTXUI@7.0.0")
+    cpmaddpackage("gh:ArthurSonzogni/FTXUI@7.0.1")
   endif()
 
   if(NOT TARGET nlohmann_json::nlohmann_json)
