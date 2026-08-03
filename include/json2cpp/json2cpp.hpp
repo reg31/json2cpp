@@ -243,6 +243,8 @@ private:
     value ^= value >> 16u;
     return value;
   }
+  static constexpr uint32_t mphf_reduce(uint32_t value, uint32_t range) noexcept
+  { return static_cast<uint32_t>((uint64_t{value} * range) >> 32u); }
   static constexpr std::basic_string_view<CharType> blob_key_view(
     const basic_blob_ref_value_pair_t<CharType> *entries, const basic_blob_ref_value_pair_t<CharType> &entry) noexcept;
   [[nodiscard]] constexpr const detail::basic_mphf8_blob_ref_object_t<CharType> *mphf_blob_object() const noexcept;
@@ -824,6 +826,13 @@ template<typename CharType>
 struct basic_blob_ref_object_t { const basic_blob_ref_value_pair_t<CharType> *entries = nullptr; size_t size = 0; };
 
 namespace detail {
+struct mphf_format_t
+{
+  explicit constexpr mphf_format_t() noexcept = default;
+};
+
+inline constexpr mphf_format_t mphf_format{};
+
 template<typename CharType>
 struct basic_mphf8_blob_ref_object_t
 {
@@ -833,6 +842,7 @@ struct basic_mphf8_blob_ref_object_t
   uint8_t bucket_count = 0;
   uint8_t seed1 = 0;
   uint8_t seed2 = 0;
+  [[no_unique_address]] mphf_format_t format;
   uint64_t prefix_mask = ~uint64_t{0};
 };
 
@@ -849,6 +859,7 @@ struct basic_indexed_mphf8_blob_ref_object_t
   uint8_t bucket_count = 0;
   uint8_t seed1 = 0;
   uint8_t seed2 = 0;
+  [[no_unique_address]] mphf_format_t format;
   uint64_t prefix_mask = ~uint64_t{0};
 };
 
@@ -956,8 +967,12 @@ struct basic_items_t
         value = nullptr;
         return *this;
       }
-      entry = static_cast<const std::byte *>(entry) + stride;
-      value = value_from_entry(owner, entry, layout);
+      if consteval {
+        value = &owner->entry_value(index);
+      } else {
+        entry = static_cast<const std::byte *>(entry) + stride;
+        value = value_from_entry(owner, entry, layout);
+      }
       return *this;
     }
     constexpr void operator++(int) noexcept { ++(*this); }
@@ -1243,8 +1258,8 @@ constexpr size_t basic_json<CharType>::find_mphf_blob_entry_index_after_prefix(
   uint32_t target_hash,
   size_t prefix_size) const noexcept
 {
-  const auto bucket = mphf_mix(target_hash, object->seed1) % object->bucket_count;
-  const auto slot = (mphf_mix(target_hash, object->seed2) + object->table[bucket]) % length_;
+  const auto bucket = mphf_reduce(mphf_mix(target_hash, object->seed1), object->bucket_count);
+  const auto slot = mphf_reduce(mphf_mix(target_hash, object->seed2 + object->table[bucket]), length_);
   const auto index = object->table[object->bucket_count + slot];
   if (index >= length_ || index < prefix_size) return npos;
 
@@ -1277,8 +1292,8 @@ constexpr size_t basic_json<CharType>::find_indexed_mphf_blob_entry_index_after_
   uint32_t target_hash,
   size_t prefix_size) const noexcept
 {
-  const auto bucket = mphf_mix(target_hash, object->seed1) % object->bucket_count;
-  const auto slot = (mphf_mix(target_hash, object->seed2) + object->table[bucket]) % length_;
+  const auto bucket = mphf_reduce(mphf_mix(target_hash, object->seed1), object->bucket_count);
+  const auto slot = mphf_reduce(mphf_mix(target_hash, object->seed2 + object->table[bucket]), length_);
   const auto index = object->table[object->bucket_count + slot];
   if (index >= length_ || index < prefix_size) return npos;
 
