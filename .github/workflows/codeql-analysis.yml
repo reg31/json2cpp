@@ -55,7 +55,7 @@ jobs:
       with:
         compiler: ${{ matrix.compiler }}
         build_type: ${{ matrix.build_type }}
-        packaging_maintainer_mode: ${{ matrix.packaging_maintainer_mode }}
+        developer_mode: ${{ matrix.packaging_maintainer_mode != 'ON' }}
         generator: ${{ matrix.generator }}
 
 
@@ -87,16 +87,17 @@ jobs:
       uses: github/codeql-action/init@v4.37.3
       with:
         languages: ${{ matrix.language }}
-        # If you wish to specify custom queries, you can do so here or in a config file.
-        # By default, queries listed here will override any specified in a config file.
-        # Prefix the list here with "+" to use these queries and those in the config file.
-        # queries: ./path/to/local/query, your-org/your-repo/queries@main
-
-
+        build-mode: manual
+    
+    - name: Configure CMake
+      run: >
+        cmake -S . -B ./build -G "${{ matrix.generator }}"
+        -DCMAKE_BUILD_TYPE:STRING=${{ matrix.build_type }}
+        -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=${{ matrix.packaging_maintainer_mode }}
+        -Djson2cpp_ENABLE_COVERAGE:BOOL=${{ matrix.build_type == 'Debug' }}
+    
     - name: Build
-      # Execute the build.  You can specify a specific target with "--target <NAME>"
-      run: |
-        cmake --build ./build --config ${{matrix.build_type}}
+      run: cmake --build ./build --config ${{ matrix.build_type }}
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4.37.3
