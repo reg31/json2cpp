@@ -19,7 +19,7 @@ jobs:
         extensions: 'h,cpp,hpp'
         inplace: True
         
-    - uses: EndBug/add-and-commit@v10
+    - uses: EndBug/add-and-commit@v11
       if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
       with:
         author_name: Clang Robot
