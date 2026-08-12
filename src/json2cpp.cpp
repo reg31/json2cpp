@@ -24,7 +24,6 @@ SOFTWARE.
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -37,6 +36,7 @@ SOFTWARE.
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -50,17 +50,112 @@ namespace {
 
 std::string sanitize_identifier(std::string_view name)
 {
+  static constexpr std::string_view keywords[] = { "alignas",
+    "alignof",
+    "and",
+    "and_eq",
+    "asm",
+    "auto",
+    "bitand",
+    "bitor",
+    "bool",
+    "break",
+    "case",
+    "catch",
+    "char",
+    "char8_t",
+    "char16_t",
+    "char32_t",
+    "class",
+    "compl",
+    "concept",
+    "const",
+    "consteval",
+    "constexpr",
+    "constinit",
+    "const_cast",
+    "continue",
+    "co_await",
+    "co_return",
+    "co_yield",
+    "decltype",
+    "default",
+    "delete",
+    "do",
+    "double",
+    "dynamic_cast",
+    "else",
+    "enum",
+    "explicit",
+    "export",
+    "extern",
+    "false",
+    "float",
+    "for",
+    "friend",
+    "goto",
+    "if",
+    "inline",
+    "int",
+    "long",
+    "mutable",
+    "namespace",
+    "new",
+    "noexcept",
+    "not",
+    "not_eq",
+    "nullptr",
+    "operator",
+    "or",
+    "or_eq",
+    "private",
+    "protected",
+    "public",
+    "register",
+    "reinterpret_cast",
+    "requires",
+    "return",
+    "short",
+    "signed",
+    "sizeof",
+    "static",
+    "static_assert",
+    "static_cast",
+    "struct",
+    "switch",
+    "template",
+    "this",
+    "thread_local",
+    "throw",
+    "true",
+    "try",
+    "typedef",
+    "typeid",
+    "typename",
+    "union",
+    "unsigned",
+    "using",
+    "virtual",
+    "void",
+    "volatile",
+    "wchar_t",
+    "while",
+    "xor",
+    "xor_eq" };
   std::string result;
   result.reserve(name.size());
   for (char c : name) {
-    if (std::isalnum(static_cast<unsigned char>(c))) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
       result.push_back(c);
-    } else {
+    } else if (result.empty() || result.back() != '_') {
       result.push_back('_');
     }
   }
-  if (!result.empty() && std::isdigit(static_cast<unsigned char>(result[0]))) { result.insert(0, "_"); }
-  return result.empty() ? "json_doc" : result;
+  if (result.empty()) return "json_doc";
+  if (result[0] >= '0' && result[0] <= '9') result.insert(0, "json_");
+  if (result[0] == '_') result.insert(0, "json");
+  if (std::ranges::contains(keywords, result)) result += '_';
+  return result;
 }
 
 std::string escape_string(const std::string &str)
@@ -249,14 +344,19 @@ struct ReuseTrackerBase
   template<typename Predicate> void prepare_reuse_variables(Predicate should_share)
   {
     for (const auto &[value, count] : counts) {
-      if (should_share(count)) value_to_var[value] = fmt::format("{}{}", prefix, counter++);
+      if (should_share(count)) value_to_var.try_emplace(value);
     }
   }
 
   bool is_shared(const nlohmann::ordered_json &value) const { return value_to_var.contains(value); }
   bool is_processed(const std::string &var_name) const { return processed_vars.contains(var_name); }
   void mark_as_processed(const std::string &var_name) { processed_vars.insert(var_name); }
-  const std::string &get_var_name(const nlohmann::ordered_json &value) const { return value_to_var.at(value); }
+  const std::string &get_var_name(const nlohmann::ordered_json &value)
+  {
+    auto &name = value_to_var.at(value);
+    if (name.empty()) name = fmt::format("{}{}", prefix, counter++);
+    return name;
+  }
   std::size_t get_reused_count() const { return value_to_var.size(); }
 
   int32_t get_total_references_saved() const
@@ -300,14 +400,38 @@ struct ScalarTracker : ReuseTrackerBase
   void prepare_variables()
   {
     prepare_reuse_variables([this](int count) { return count >= min_references; });
-    pooled_values.reserve(value_to_var.size());
-    for (const auto &[value, _] : value_to_var) {
-      value_to_index.emplace(value, static_cast<std::uint32_t>(pooled_values.size()));
-      pooled_values.emplace_back(value);
-    }
   }
 
-  std::uint32_t get_pool_index(const nlohmann::ordered_json &value) const { return value_to_index.at(value); }
+  std::uint32_t get_pool_index(const nlohmann::ordered_json &value)
+  {
+    const auto index = static_cast<std::uint32_t>(pooled_values.size());
+    const auto [it, inserted] = value_to_index.try_emplace(value, index);
+    if (inserted) pooled_values.emplace_back(value);
+    return it->second;
+  }
+
+  bool can_use_uint8_indices(const nlohmann::ordered_json &object) const
+  {
+    std::unordered_set<nlohmann::ordered_json, JsonHasher, JsonEqual> pending;
+    auto next_index = pooled_values.size();
+    for (auto itr = object.begin(); itr != object.end(); ++itr) {
+      if (const auto existing = value_to_index.find(itr.value()); existing != value_to_index.end()) {
+        if (existing->second > 0xFFu) return false;
+      } else if (pending.emplace(itr.value()).second && next_index++ > 0xFFu) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  std::size_t get_reused_count() const { return pooled_values.size(); }
+
+  int32_t get_total_references_saved() const
+  {
+    int32_t total = 0;
+    for (const auto &value : pooled_values) total += counts.at(value) - 1;
+    return total;
+  }
 
   int use_count(const nlohmann::ordered_json &value) const
   {
@@ -506,16 +630,14 @@ double estimate_value_ref_entry_savings(const nlohmann::ordered_json &value, con
 bool can_use_indexed_mphf_values(const nlohmann::ordered_json &value, const EmitContext &ctx)
 {
   if (!value.is_object()) return false;
-  if (ctx.trackers.scalar_tracker.pooled_values.size() > 0xFFFFu) return false;
   std::size_t key_offset = 0;
   for (auto itr = value.begin(); itr != value.end(); ++itr) {
     if (!itr.value().is_string() || !ctx.trackers.scalar_tracker.is_shared(itr.value())) return false;
-    if (ctx.trackers.scalar_tracker.get_pool_index(itr.value()) > 0xFFu) return false;
     if (itr.key().size() > 0xFFu) return false;
     key_offset += itr.key().size();
     if (key_offset > 0xFFFFu) return false;
   }
-  return true;
+  return ctx.trackers.scalar_tracker.can_use_uint8_indices(value);
 }
 
 bool can_use_blob_keys(const nlohmann::ordered_json &value)
@@ -846,6 +968,7 @@ std::string emit_blob_entry(const std::string &value_ref,
 
 std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, const std::string &node_name)
 {
+  if (value.empty()) return "object_t{}";
   auto layout = choose_object_layout(value, ctx);
   Mphf8Plan utf8_mphf, utf16_mphf;
   const bool use_mphf = layout == ObjectLayout::BlobByReference && build_mphf8_plan(value, false, utf8_mphf)
@@ -961,6 +1084,7 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
 
 std::string emit_array(const nlohmann::ordered_json &value, EmitContext &ctx, const std::string &node_name)
 {
+  if (value.empty()) return "array_t{}";
   std::vector<std::string> entries;
   entries.reserve(value.size());
   for (const auto &child : value) { entries.emplace_back(fmt::format("{},", emit_value(child, ctx))); }

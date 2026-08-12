@@ -773,7 +773,8 @@ public:
 
   [[nodiscard]] constexpr const basic_json *end() const noexcept
   {
-    return is_array() ? data_storage_.array_value + length_ : nullptr;
+    if (!is_array()) return nullptr;
+    return length_ == 0 ? data_storage_.array_value : data_storage_.array_value + length_;
   }
 
   constexpr operator std::span<const basic_json>() const noexcept
