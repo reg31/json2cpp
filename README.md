@@ -24,6 +24,58 @@ read-only and does not parse, allocate, mutate, or own JSON data at runtime.
 - A C++23 compiler.
 - CMake when building the generator.
 
+## Installation
+
+The generator is a build-time tool. Applications do not link a json2cpp runtime
+library; they compile the generated `.cpp` file and include the header-only API.
+
+### Download the generator
+
+Download and extract the package for your platform from
+[GitHub Releases](https://github.com/reg31/json2cpp/releases). The package contains the
+`json2cpp` executable and `include/json2cpp/json2cpp.hpp`.
+
+Add the executable to `PATH`, or invoke it using its full path.
+
+### Build the generator with CMake
+
+```console
+git clone https://github.com/reg31/json2cpp.git
+cmake -S json2cpp -B json2cpp/build -DCMAKE_BUILD_TYPE=Release -Djson2cpp_PACKAGING_MAINTAINER_MODE=ON
+cmake --build json2cpp/build --config Release --target json2cpp
+```
+
+With a single-configuration generator, the executable is normally under
+`json2cpp/build/src`. With Visual Studio or another multi-configuration generator, it
+is normally under `json2cpp/build/src/Release`.
+
+### Add the header to your project
+
+Copy the header from the source tree or extracted package while preserving its include
+path:
+
+```text
+your-project/
+  include/
+    json2cpp/
+      json2cpp.hpp
+```
+
+Generated files use `#include <json2cpp/json2cpp.hpp>`, so add `your-project/include`
+to the compiler's include paths. A minimal CMake consumer setup is:
+
+```cmake
+target_sources(my_app PRIVATE generated/config.cpp)
+target_include_directories(my_app PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/generated"
+)
+target_compile_features(my_app PRIVATE cxx_std_23)
+```
+
+No generator dependency is required when building or running the application after the
+generated files have been created.
+
 ## Generate a document
 
 Given `config.json`:
