@@ -33,7 +33,7 @@ function(json2cpp_setup_dependencies)
   endif()
 
   if(NOT TARGET ftxui::screen)
-    cpmaddpackage("gh:ArthurSonzogni/FTXUI@7.0.2")
+    cpmaddpackage("gh:ArthurSonzogni/FTXUI@7.0.3")
   endif()
 
   if(NOT TARGET nlohmann_json::nlohmann_json)
