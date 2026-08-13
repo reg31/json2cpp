@@ -561,4 +561,4 @@ static_assert(document["retries"] == 3);
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE)
