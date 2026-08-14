@@ -192,6 +192,7 @@ private:
   static constexpr uint64_t blob_value_hash_shift = blob_key_hash_bits;
   static constexpr uint64_t blob_length_shift = blob_key_hash_bits + blob_value_hash_bits;
   static constexpr uint64_t blob_offset_shift = blob_key_hash_bits + blob_value_hash_bits + blob_length_bits;
+  static constexpr uint32_t truncated_hash_mask = uint32_t{ 1 } << 31;
   static constexpr uint32_t indexed_offset_bits = 16, indexed_length_bits = 8, indexed_value_index_bits = 8;
   static constexpr uint32_t indexed_offset_mask = (uint32_t{ 1 } << indexed_offset_bits) - 1u,
                             indexed_length_mask = (uint32_t{ 1 } << indexed_length_bits) - 1u,
@@ -335,6 +336,10 @@ private:
     return static_cast<ObjectLayout>((metadata_ & object_layout_mask) >> object_layout_shift);
   }
   [[nodiscard]] constexpr object_key_view entry_key(size_t index) const noexcept;
+  static constexpr uint32_t full_key_hash(const object_key_view &key) noexcept
+  {
+    return (key.hash & truncated_hash_mask) != 0u ? calc_hash(key.value) : key.hash;
+  }
   [[nodiscard]] constexpr const basic_json &entry_value(size_t index) const noexcept;
   [[nodiscard]] constexpr size_t find_mphf_blob_entry_index(std::basic_string_view<CharType> key,
     uint32_t target_hash) const noexcept;
@@ -352,8 +357,8 @@ private:
   [[nodiscard]] constexpr size_t find_entry_index(std::basic_string_view<CharType> key) const noexcept;
   [[nodiscard]] constexpr size_t find_entry_index(std::basic_string_view<CharType> key,
     uint32_t target_hash) const noexcept;
-  [[nodiscard]] constexpr basic_entry_view_t<CharType> find_entry_dynamic(
-    std::basic_string_view<CharType> key) const noexcept;
+  [[nodiscard]] constexpr size_t
+    find_entry_index(std::basic_string_view<CharType> key, uint32_t target_hash, ObjectLayout layout) const noexcept;
   [[nodiscard]] constexpr const basic_json &at_regular_prehashed(std::basic_string_view<CharType> view,
     uint32_t target_hash) const
   {
@@ -432,22 +437,30 @@ public:
   [[nodiscard]] constexpr basic_entry_view_t<CharType> find_entry(std::basic_string_view<CharType> key,
     uint32_t target_hash) const noexcept;
 
+  [[nodiscard]] constexpr basic_entry_view_t<CharType> find_entry(std::basic_string_view<CharType> key) const noexcept
+  {
+    return find_entry(key, calc_hash(key));
+  }
+
   [[nodiscard]] constexpr basic_entry_view_t<CharType> find_entry(detail::LiteralKey<CharType> key) const noexcept
   {
     return find_entry(key.value, key.hash);
   }
 
-  template<size_t N> [[nodiscard]] constexpr basic_entry_view_t<CharType> find_entry(CharType (&key)[N]) const noexcept
+  template<size_t N>
+  [[nodiscard]] constexpr basic_entry_view_t<CharType> find_entry(const CharType (&key)[N]) const noexcept
   {
-    return find_entry_dynamic(std::basic_string_view<CharType>(key, N - 1));
+    const auto view = std::basic_string_view<CharType>(key, N - 1);
+    return find_entry(view, calc_hash(view));
   }
 
   template<typename Key>
   [[nodiscard]] constexpr basic_entry_view_t<CharType> find_entry(const Key &key) const noexcept
-    requires(detail::string_like<Key, CharType> && !detail::char_array_like<Key, CharType>)
+    requires(detail::string_like<Key, CharType> && !detail::char_array_like<Key, CharType>
+             && !std::convertible_to<Key, std::basic_string_view<CharType>>)
   {
     const auto view = detail::make_string_view<CharType>(key);
-    return find_entry_dynamic(view);
+    return find_entry(view, calc_hash(view));
   }
 
   [[nodiscard]] constexpr Type type() const noexcept { return static_cast<Type>(metadata_ & type_mask); }
@@ -1011,7 +1024,7 @@ template<typename CharType> struct basic_item_key_t
 
   [[nodiscard]] constexpr uint32_t hash() const noexcept
   {
-    return owner == nullptr ? 0u : owner->entry_key(index).hash;
+    return owner == nullptr ? 0u : owner->full_key_hash(owner->entry_key(index));
   }
 
   constexpr operator std::basic_string_view<CharType>() const noexcept { return getString(); }
@@ -1020,7 +1033,7 @@ template<typename CharType> struct basic_item_key_t
   {
     if (owner == nullptr) return {};
     const auto key = owner->entry_key(index);
-    return basic_json<CharType>(key.value, key.hash, typename basic_json<CharType>::prehashed_t{});
+    return basic_json<CharType>(key.value, owner->full_key_hash(key), typename basic_json<CharType>::prehashed_t{});
   }
 
   template<typename T>
@@ -1222,7 +1235,7 @@ constexpr auto basic_json<CharType>::entry_key(size_t index) const noexcept -> o
   if (is_blob_ref_layout(layout)) {
     const auto entries = data_storage_.blob_ref_object_value;
     const auto &entry = entries[index];
-    return { blob_key_view(entries, entry), blob_key_hash(entry.key_meta) };
+    return { blob_key_view(entries, entry), blob_key_hash(entry.key_meta) | truncated_hash_mask };
   }
   if (layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
     const auto object = indexed_mphf_blob_object();
@@ -1370,14 +1383,20 @@ constexpr size_t basic_json<CharType>::find_entry_index(std::basic_string_view<C
   if (!is_object() || length_ == 0) return npos;
   if (is_sorted_obj()) return find_sorted_entry_index(key);
 
-  const auto layout = object_layout();
+  return find_entry_index(key, target_hash, object_layout());
+}
+
+template<typename CharType>
+constexpr size_t basic_json<CharType>::find_entry_index(std::basic_string_view<CharType> key,
+  uint32_t target_hash,
+  ObjectLayout layout) const noexcept
+{
   if (layout == ObjectLayout::Regular) {
     const auto entries = std::span(data_storage_.object_value, length_);
     for (size_t i = 0; i < entries.size(); ++i)
       if (entries[i].first.hash() == target_hash && entries[i].first.getString() == key) return i;
     return npos;
   }
-
   if (layout == ObjectLayout::CompactInline) {
     const auto entries = std::span(data_storage_.compact_object_value, length_);
     for (size_t i = 0; i < entries.size(); ++i)
@@ -1423,16 +1442,22 @@ template<typename CharType>
 constexpr basic_entry_view_t<CharType> basic_json<CharType>::find_entry(std::basic_string_view<CharType> key,
   uint32_t target_hash) const noexcept
 {
-  const auto index = find_entry_index(key, target_hash);
-  return index == npos ? basic_entry_view_t<CharType>{}
-                       : basic_entry_view_t<CharType>{ { this, index }, &entry_value(index) };
-}
+  if (!is_object() || length_ == 0) return {};
+  if (is_sorted_obj()) [[unlikely]] {
+    const auto index = find_sorted_entry_index(key);
+    return index == npos ? basic_entry_view_t<CharType>{}
+                         : basic_entry_view_t<CharType>{ { this, index }, &entry_value(index) };
+  }
+  const auto layout = object_layout();
+  if (layout == ObjectLayout::Regular) {
+    const auto entries = data_storage_.object_value;
+    for (size_t i = 0; i < length_; ++i)
+      if (entries[i].first.hash() == target_hash && entries[i].first.getString() == key)
+        return { { this, i }, &entries[i].second };
+    return {};
+  }
 
-template<typename CharType>
-constexpr basic_entry_view_t<CharType> basic_json<CharType>::find_entry_dynamic(
-  std::basic_string_view<CharType> key) const noexcept
-{
-  const auto index = find_entry_index(key);
+  const auto index = find_entry_index(key, target_hash, layout);
   return index == npos ? basic_entry_view_t<CharType>{}
                        : basic_entry_view_t<CharType>{ { this, index }, &entry_value(index) };
 }
