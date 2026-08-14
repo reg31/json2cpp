@@ -25,11 +25,14 @@ SOFTWARE.
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <functional>
+#include <format>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -40,104 +43,32 @@ SOFTWARE.
 #include <utility>
 #include <vector>
 
-#include "json2cpp_generator.hpp"
+#ifndef JSON2CPP_VERSION
+#define JSON2CPP_VERSION "development"
+#endif
 
 namespace {
 
+struct compile_results
+{
+  std::vector<std::string> hpp;
+  std::vector<std::string> impl;
+};
+
 std::string sanitize_identifier(std::string_view name)
 {
-  static constexpr std::string_view keywords[] = { "alignas",
-    "alignof",
-    "and",
-    "and_eq",
-    "asm",
-    "auto",
-    "bitand",
-    "bitor",
-    "bool",
-    "break",
-    "case",
-    "catch",
-    "char",
-    "char8_t",
-    "char16_t",
-    "char32_t",
-    "class",
-    "compl",
-    "concept",
-    "const",
-    "consteval",
-    "constexpr",
-    "constinit",
-    "const_cast",
-    "continue",
-    "co_await",
-    "co_return",
-    "co_yield",
-    "decltype",
-    "default",
-    "delete",
-    "do",
-    "double",
-    "dynamic_cast",
-    "else",
-    "enum",
-    "explicit",
-    "export",
-    "extern",
-    "false",
-    "float",
-    "for",
-    "friend",
-    "goto",
-    "if",
-    "inline",
-    "int",
-    "long",
-    "mutable",
-    "namespace",
-    "new",
-    "noexcept",
-    "not",
-    "not_eq",
-    "nullptr",
-    "operator",
-    "or",
-    "or_eq",
-    "private",
-    "protected",
-    "public",
-    "register",
-    "reinterpret_cast",
-    "requires",
-    "return",
-    "short",
-    "signed",
-    "sizeof",
-    "static",
-    "static_assert",
-    "static_cast",
-    "struct",
-    "switch",
-    "template",
-    "this",
-    "thread_local",
-    "throw",
-    "true",
-    "try",
-    "typedef",
-    "typeid",
-    "typename",
-    "union",
-    "unsigned",
-    "using",
-    "virtual",
-    "void",
-    "volatile",
-    "wchar_t",
-    "while",
-    "xor",
-    "xor_eq" };
+  static constexpr std::string_view keywords[] = {
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break",
+    "case", "catch", "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const",
+    "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await", "co_return", "co_yield",
+    "decltype", "default", "delete", "do", "double", "dynamic_cast", "else", "enum", "explicit", "export",
+    "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable",
+    "namespace", "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private",
+    "protected", "public", "register", "reinterpret_cast", "requires", "return", "short", "signed", "sizeof",
+    "static", "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local", "throw",
+    "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void",
+    "volatile", "wchar_t", "while", "xor", "xor_eq"
+  };
   std::string result;
   result.reserve(name.size());
   for (char c : name) {
@@ -160,27 +91,13 @@ std::string escape_string(const std::string &str)
   result.reserve(str.size());
   for (const char character : str) {
     switch (character) {
-    case '"':
-      result += "\\\"";
-      break;
-    case '\\':
-      result += "\\\\";
-      break;
-    case '\b':
-      result += "\\b";
-      break;
-    case '\f':
-      result += "\\f";
-      break;
-    case '\n':
-      result += "\\n";
-      break;
-    case '\r':
-      result += "\\r";
-      break;
-    case '\t':
-      result += "\\t";
-      break;
+    case '"': result += "\\\""; break;
+    case '\\': result += "\\\\"; break;
+    case '\b': result += "\\b"; break;
+    case '\f': result += "\\f"; break;
+    case '\n': result += "\\n"; break;
+    case '\r': result += "\\r"; break;
+    case '\t': result += "\\t"; break;
     default: {
       const auto byte = static_cast<unsigned char>(character);
       if (byte < 0x20u || byte == 0x7Fu) {
@@ -198,7 +115,10 @@ std::string escape_string(const std::string &str)
   return result;
 }
 
-std::string format_json_string(const std::string &str) { return std::format("RAW_PREFIX(\"{}\")", escape_string(str)); }
+std::string format_json_string(const std::string &str)
+{
+  return std::format("RAW_PREFIX(\"{}\")", escape_string(str));
+}
 
 uint32_t finalize_json_hash(uint32_t h)
 {
@@ -279,14 +199,13 @@ struct StringHash
 struct JsonRefHash
 {
   std::size_t operator()(const nlohmann::ordered_json *value) const
-  {
-    return std::hash<nlohmann::ordered_json>{}(*value);
-  }
+  { return std::hash<nlohmann::ordered_json>{}(*value); }
 };
 
 struct JsonRefEqual
 {
-  bool operator()(const nlohmann::ordered_json *lhs, const nlohmann::ordered_json *rhs) const { return *lhs == *rhs; }
+  bool operator()(const nlohmann::ordered_json *lhs, const nlohmann::ordered_json *rhs) const
+  { return *lhs == *rhs; }
 };
 
 template<typename T>
@@ -303,7 +222,8 @@ struct ReuseTrackerBase
 
   explicit ReuseTrackerBase(std::string p) : prefix(std::move(p)) {}
 
-  template<typename Predicate> void prepare_reuse_variables(Predicate should_share)
+  template<typename Predicate>
+  void prepare_reuse_variables(Predicate should_share)
   {
     for (const auto &[value, count] : counts) {
       if (should_share(count)) value_to_var.try_emplace(value);
@@ -339,10 +259,7 @@ struct DuplicateTracker : ReuseTrackerBase
     if ((value.is_object() || value.is_array()) && value.size() >= min_size) { ++counts[&value]; }
   }
 
-  void prepare_variables()
-  {
-    prepare_reuse_variables([](int count) { return count > 1; });
-  }
+  void prepare_variables() { prepare_reuse_variables([](int count) { return count > 1; }); }
 };
 
 struct ScalarTracker
@@ -352,16 +269,10 @@ struct ScalarTracker
   JsonRefMap<std::uint32_t> value_to_index;
   std::vector<const nlohmann::ordered_json *> pooled_values;
 
-  void track(const nlohmann::ordered_json &value)
-  {
-    if (value.is_string()) ++counts[&value];
-  }
+  void track(const nlohmann::ordered_json &value) { if (value.is_string()) ++counts[&value]; }
 
   bool is_shared(const nlohmann::ordered_json &value) const
-  {
-    const auto it = counts.find(&value);
-    return it != counts.end() && it->second >= min_references;
-  }
+  { const auto it = counts.find(&value); return it != counts.end() && it->second >= min_references; }
 
   std::uint32_t get_pool_index(const nlohmann::ordered_json &value)
   {
@@ -395,13 +306,11 @@ struct ScalarTracker
   }
 
   int use_count(const nlohmann::ordered_json &value) const
-  {
-    const auto it = counts.find(&value);
-    return it == counts.end() ? 0 : it->second;
-  }
+  { const auto it = counts.find(&value); return it == counts.end() ? 0 : it->second; }
 };
 
-enum class ObjectLayout {
+enum class ObjectLayout
+{
   Regular,
   CompactInline,
   ValueByReference,
@@ -510,7 +419,8 @@ struct Mphf8Buckets
   std::vector<std::uint8_t> order;
 };
 
-void analyze_json(const nlohmann::ordered_json &value, TrackerSet &trackers)
+void analyze_json(const nlohmann::ordered_json &value,
+  TrackerSet &trackers)
 {
   if (value.is_object()) {
     trackers.object_tracker.track(value);
@@ -615,7 +525,7 @@ bool can_use_blob_keys(const nlohmann::ordered_json &value)
   for (auto itr = value.begin(); itr != value.end(); ++itr) {
     if (itr.key().size() >= 4096) return false;
     offset += itr.key().size();
-    if (offset >= (std::size_t{ 1 } << 16)) return false;
+    if (offset >= (std::size_t{1} << 16)) return false;
   }
   return true;
 }
@@ -641,7 +551,8 @@ Mphf8Buckets build_mphf8_buckets(const std::vector<std::uint32_t> &hashes,
   const std::uint8_t seed1)
 {
   const auto size = static_cast<std::uint8_t>(hashes.size());
-  Mphf8Buckets buckets{ std::vector<std::vector<std::uint8_t>>(bucket_count), std::vector<std::uint8_t>(bucket_count) };
+  Mphf8Buckets buckets{ std::vector<std::vector<std::uint8_t>>(bucket_count),
+    std::vector<std::uint8_t>(bucket_count) };
   for (std::uint8_t i = 0; i < size; ++i)
     buckets.values[mphf_reduce(mphf_mix(hashes[i], seed1), bucket_count)].emplace_back(i);
   for (std::uint8_t i = 0; i < bucket_count; ++i) buckets.order[i] = i;
@@ -724,8 +635,8 @@ bool build_mphf8_plan(const nlohmann::ordered_json &value, const bool utf16, Mph
   std::size_t attempts = 0;
   for (std::uint16_t bucket_count = min_buckets; bucket_count <= size; ++bucket_count)
     for (std::uint16_t seed1 = 0; seed1 <= 0xFFu; ++seed1) {
-      const auto buckets =
-        build_mphf8_buckets(hashes, static_cast<std::uint8_t>(bucket_count), static_cast<std::uint8_t>(seed1));
+      const auto buckets = build_mphf8_buckets(
+        hashes, static_cast<std::uint8_t>(bucket_count), static_cast<std::uint8_t>(seed1));
       for (std::uint16_t seed2 = 0; seed2 <= 0xFFu; ++seed2) {
         if (++attempts > max_mphf_attempts) return false;
         if (try_build_mphf8_plan(hashes,
@@ -784,7 +695,7 @@ std::uint64_t make_mphf_prefix_mask(const nlohmann::ordered_json &value, const b
   std::size_t index = 0;
   for (auto itr = value.begin(); itr != value.end() && index < mphf_linear_prefix; ++itr, ++index) {
     const auto hash = utf16 ? hash_utf16(itr.key()) : hash_utf8(itr.key());
-    mask |= std::uint64_t{ 1 } << (hash & 63u);
+    mask |= std::uint64_t{1} << (hash & 63u);
   }
   return mask;
 }
@@ -834,9 +745,7 @@ void emit_indexed_mphf8_descriptor(const std::string &node_name,
   std::vector<std::string> &lines)
 {
   const auto format = [&](const Mphf8Plan &plan, std::uint64_t prefix_mask) {
-    return std::format(
-      "constexpr indexed_mphf8_blob_object_t {}_mphf{{{}.entries.data(), {}_keys, s, {}.value_hashes.data(), "
-      "{}.prefix_hashes.data(), {}, {}, {}, {}, {}, 0x{:016x}ull}};",
+    return std::format("constexpr indexed_mphf8_blob_object_t {}_mphf{{{}.entries.data(), {}_keys, s, {}.value_hashes.data(), {}.prefix_hashes.data(), {}, {}, {}, {}, {}, 0x{:016x}ull}};",
       node_name,
       node_name,
       node_name,
@@ -870,9 +779,10 @@ ObjectLayout choose_object_layout(const nlohmann::ordered_json &value, const Emi
   }
 
   const auto blob_ref_savings = value_ref_possible && can_use_blob_keys(value)
-                                  ? value_ref_savings + (static_cast<double>(value.size()) * 8.0) - 16.0
-                                  : -1.0e18;
-  if (blob_ref_savings >= ctx.trackers.key_tracker.min_compact_savings && blob_ref_savings > value_ref_savings
+    ? value_ref_savings + (static_cast<double>(value.size()) * 8.0) - 16.0
+    : -1.0e18;
+  if (blob_ref_savings >= ctx.trackers.key_tracker.min_compact_savings
+      && blob_ref_savings > value_ref_savings
       && blob_ref_savings > inline_savings)
     return ObjectLayout::BlobByReference;
   if (value_ref_possible && value_ref_savings >= ctx.trackers.key_tracker.min_compact_savings
@@ -952,8 +862,9 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
   if (value.empty()) return "object_t{}";
   auto layout = choose_object_layout(value, ctx);
   Mphf8Plan utf8_mphf, utf16_mphf;
-  const bool use_mphf = layout == ObjectLayout::BlobByReference && build_mphf8_plan(value, false, utf8_mphf)
-                        && build_mphf8_plan(value, true, utf16_mphf);
+  const bool use_mphf = layout == ObjectLayout::BlobByReference
+                     && build_mphf8_plan(value, false, utf8_mphf)
+                     && build_mphf8_plan(value, true, utf16_mphf);
   if (use_mphf)
     layout = can_use_indexed_mphf_values(value, ctx) ? ObjectLayout::IndexedPerfectHashBlobByReference
                                                      : ObjectLayout::PerfectHashBlobByReference;
@@ -970,8 +881,8 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
 
   std::vector<std::string> entries;
   entries.reserve(value.size()
-                  + (layout == ObjectLayout::PerfectHashBlobByReference ? 2u
-                     : layout == ObjectLayout::BlobByReference          ? 1u
+                + (layout == ObjectLayout::PerfectHashBlobByReference ? 2u
+                   : layout == ObjectLayout::BlobByReference           ? 1u
                                                                         : 0u));
 
   if (layout == ObjectLayout::BlobByReference || layout == ObjectLayout::PerfectHashBlobByReference
@@ -1015,26 +926,27 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
       key_offset += itr.key().size();
       utf16_key_offset += utf16_key_length;
     } else if (layout == ObjectLayout::BlobByReference || layout == ObjectLayout::PerfectHashBlobByReference) {
-      entries.emplace_back(
-        emit_blob_entry(emit_value_reference(itr.value(), ctx), itr.value(), itr.key(), key_offset, utf16_key_offset));
+      entries.emplace_back(emit_blob_entry(emit_value_reference(itr.value(), ctx),
+        itr.value(),
+        itr.key(),
+        key_offset,
+        utf16_key_offset));
       const auto utf16_key_length = utf16_length(itr.key());
       key_offset += itr.key().size();
       utf16_key_offset += utf16_key_length;
     } else {
-      entries.emplace_back(
-        std::format("pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value(itr.value(), ctx)));
+      entries.emplace_back(std::format("pair_t{{{}, {}}},", format_json_string(itr.key()), emit_value(itr.value(), ctx)));
     }
   }
 
   if (layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
-    ctx.lines.emplace_back(
-      std::format("constexpr auto {} = json2cpp::detail::make_indexed_blob_storage({}_keys, std::array<std::uint8_t, "
-                  "{}>{{{}}}, {}, s);",
-        node_name,
-        node_name,
-        indexed_lengths.size(),
-        join_strings(indexed_lengths),
-        emit_uint8_std_array(indexed_value_indices)));
+    ctx.lines.emplace_back(std::format(
+      "constexpr auto {} = json2cpp::detail::make_indexed_blob_storage({}_keys, std::array<std::uint8_t, {}>{{{}}}, {}, s);",
+      node_name,
+      node_name,
+      indexed_lengths.size(),
+      join_strings(indexed_lengths),
+      emit_uint8_std_array(indexed_value_indices)));
     emit_indexed_mphf8_descriptor(node_name,
       value.size(),
       make_mphf_prefix_mask(value, false),
@@ -1044,22 +956,21 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
     return std::format("&{}_mphf", node_name);
   }
 
-  const auto entry_type =
-    layout == ObjectLayout::CompactInline                                                           ? "compact_pair_t"
-    : layout == ObjectLayout::ValueByReference                                                      ? "ref_pair_t"
-    : layout == ObjectLayout::BlobByReference || layout == ObjectLayout::PerfectHashBlobByReference ? "blob_pair_t"
-                                                                                                    : "pair_t";
+  const auto entry_type = layout == ObjectLayout::CompactInline ? "compact_pair_t"
+                        : layout == ObjectLayout::ValueByReference ? "ref_pair_t"
+                        : layout == ObjectLayout::BlobByReference || layout == ObjectLayout::PerfectHashBlobByReference
+                        ? "blob_pair_t"
+                        : "pair_t";
   ctx.lines.emplace_back(std::format("constexpr {} {}[] = {{", entry_type, node_name));
 
   for (const auto &entry : entries) { ctx.lines.emplace_back(std::format("  {}", entry)); }
   ctx.lines.emplace_back("};");
   if (layout == ObjectLayout::PerfectHashBlobByReference) return std::format("&{}_mphf", node_name);
-  const auto object_type = layout == ObjectLayout::CompactInline      ? "compact_object_t"
-                           : layout == ObjectLayout::ValueByReference ? "ref_value_object_t"
-                           : layout == ObjectLayout::BlobByReference  ? "blob_object_t"
-                                                                      : "object_t";
-  if (layout == ObjectLayout::BlobByReference)
-    return std::format("{}{{{} + 1, {}}}", object_type, node_name, value.size());
+  const auto object_type = layout == ObjectLayout::CompactInline ? "compact_object_t"
+                         : layout == ObjectLayout::ValueByReference ? "ref_value_object_t"
+                         : layout == ObjectLayout::BlobByReference ? "blob_object_t"
+                                                                   : "object_t";
+  if (layout == ObjectLayout::BlobByReference) return std::format("{}{{{} + 1, {}}}", object_type, node_name, value.size());
   return std::format("{}{{{}}}", object_type, node_name);
 }
 
@@ -1169,16 +1080,14 @@ namespace compiled_json::{}::impl {{
   #define J2H(utf8_hash, utf16_hash) utf8_hash
     #endif)");
     results.impl.emplace_back(
-      "  #define J2B(value, offset, offset_delta, length, length_delta, hash_utf8, hash_utf16, value_hash_utf8, "
-      "value_hash_utf16) "
+      "  #define J2B(value, offset, offset_delta, length, length_delta, hash_utf8, hash_utf16, value_hash_utf8, value_hash_utf16) "
       "blob_pair_t{value, J2D(offset, offset_delta), J2D(length, length_delta), J2H(hash_utf8, hash_utf16), "
       "J2H(value_hash_utf8, value_hash_utf16)}");
     results.impl.emplace_back("  #define J2BS(value_index, ...) J2B(&s[value_index], __VA_ARGS__)");
     results.impl.emplace_back("  using blob_pair_t = json2cpp::basic_blob_ref_value_pair_t<basicType>;");
     results.impl.emplace_back("  using blob_object_t = json2cpp::basic_blob_ref_object_t<basicType>;");
     if (layout_usage.uses_mphf8_blob_ref) {
-      results.impl.emplace_back(
-        "  using mphf8_blob_object_t = json2cpp::detail::basic_mphf8_blob_ref_object_t<basicType>;");
+      results.impl.emplace_back("  using mphf8_blob_object_t = json2cpp::detail::basic_mphf8_blob_ref_object_t<basicType>;");
     }
   }
   if (layout_usage.uses_indexed_mphf8_blob_ref) {
@@ -1202,24 +1111,17 @@ namespace compiled_json::{}::impl {{
 
   std::cout << node_count << " JSON nodes emitted.\n"
             << trackers.key_tracker.descriptor_count() << " compact key descriptors emitted.\n"
-            << trackers.array_tracker.get_reused_count()
-            << " duplicate arrays reused (min size: " << trackers.array_tracker.min_size << "), saving "
+            << trackers.array_tracker.get_reused_count() << " duplicate arrays reused (min size: "
+            << trackers.array_tracker.min_size << "), saving "
             << trackers.array_tracker.get_total_references_saved() << " references.\n"
-            << trackers.object_tracker.get_reused_count()
-            << " duplicate objects reused (min size: " << trackers.object_tracker.min_size << "), saving "
+            << trackers.object_tracker.get_reused_count() << " duplicate objects reused (min size: "
+            << trackers.object_tracker.min_size << "), saving "
             << trackers.object_tracker.get_total_references_saved() << " references.\n"
-            << trackers.scalar_tracker.get_reused_count()
-            << " duplicate scalar values reused (min references: " << trackers.scalar_tracker.min_references
-            << "), saving " << trackers.scalar_tracker.get_total_references_saved() << " references.\n";
+            << trackers.scalar_tracker.get_reused_count() << " duplicate scalar values reused (min references: "
+            << trackers.scalar_tracker.min_references << "), saving "
+            << trackers.scalar_tracker.get_total_references_saved() << " references.\n";
 
   return results;
-}
-
-}// namespace
-
-compile_results compile(const std::string_view document_name, const nlohmann::json &json)
-{
-  return compile_impl(document_name, nlohmann::ordered_json(json));
 }
 
 compile_results compile(const std::string_view document_name, const std::filesystem::path &filename)
@@ -1244,7 +1146,8 @@ void write_compilation(std::string_view document_name,
   const auto cpp_name = append_extension(base_output, ".cpp");
   const auto impl_name = append_extension(base_output, "_impl.hpp");
 
-  if (const auto parent = base_output.parent_path(); !parent.empty()) std::filesystem::create_directories(parent);
+  if (const auto parent = base_output.parent_path(); !parent.empty())
+    std::filesystem::create_directories(parent);
 
   const auto write_lines = [](const std::filesystem::path &path, const std::vector<std::string> &lines) {
     std::ofstream output(path);
@@ -1267,15 +1170,40 @@ void write_compilation(std::string_view document_name,
 }
 
 void compile_to(const std::string_view document_name,
-  const nlohmann::json &json,
-  const std::filesystem::path &base_output)
-{
-  write_compilation(document_name, compile(document_name, json), base_output);
-}
-
-void compile_to(const std::string_view document_name,
   const std::filesystem::path &filename,
   const std::filesystem::path &base_output)
 {
   write_compilation(document_name, compile(document_name, filename), base_output);
+}
+
+}
+
+int main(int argc, char **argv)
+{
+  constexpr std::string_view usage =
+    "Usage: json2cpp <document_name> <input_file_name> <output_base_name>\n";
+
+  if (argc == 2) {
+    const std::string_view option = argv[1];
+    if (option == "--version") {
+      std::puts(JSON2CPP_VERSION);
+      return EXIT_SUCCESS;
+    }
+    if (option == "--help" || option == "-h") {
+      std::fputs(usage.data(), stdout);
+      return EXIT_SUCCESS;
+    }
+  }
+  if (argc != 4) {
+    std::fputs(usage.data(), stderr);
+    return EXIT_FAILURE;
+  }
+
+  try {
+    compile_to(argv[1], argv[2], argv[3]);
+    return EXIT_SUCCESS;
+  } catch (const std::exception &error) {
+    std::fprintf(stderr, "json2cpp: %s\n", error.what());
+    return EXIT_FAILURE;
+  }
 }
