@@ -259,7 +259,7 @@ private:
   {
     return (key_meta >> indexed_value_index_shift) & indexed_value_index_mask;
   }
-  static constexpr size_t mphf_linear_prefix = 8;
+  static constexpr size_t mphf_linear_prefix = 16;
   static constexpr uint64_t mphf_prefix_bit(uint32_t hash) noexcept { return uint64_t{ 1 } << (hash & 63u); }
   static constexpr uint32_t mphf_mix(uint32_t value, uint32_t seed) noexcept
   {
@@ -335,6 +335,21 @@ private:
     if (type() != Type::Object) return ObjectLayout::Regular;
     return static_cast<ObjectLayout>((metadata_ & object_layout_mask) >> object_layout_shift);
   }
+  [[nodiscard]] constexpr bool shares_storage_with(const basic_json &other) const noexcept
+  {
+    if (is_array()) return other.is_array() && data_storage_.array_value == other.data_storage_.array_value;
+    if (!is_object() || !other.is_object()) return false;
+    const auto layout = object_layout();
+    if (layout != other.object_layout()) return false;
+    if (layout == ObjectLayout::Regular) return data_storage_.object_value == other.data_storage_.object_value;
+    if (layout == ObjectLayout::CompactInline)
+      return data_storage_.compact_object_value == other.data_storage_.compact_object_value;
+    if (is_blob_ref_layout(layout))
+      return data_storage_.blob_ref_object_value == other.data_storage_.blob_ref_object_value;
+    if (layout == ObjectLayout::IndexedPerfectHashBlobByReference)
+      return data_storage_.indexed_mphf_blob_object_value == other.data_storage_.indexed_mphf_blob_object_value;
+    return data_storage_.ref_value_object_value == other.data_storage_.ref_value_object_value;
+  }
   [[nodiscard]] constexpr object_key_view entry_key(size_t index) const noexcept;
   static constexpr uint32_t full_key_hash(const object_key_view &key) noexcept
   {
@@ -357,8 +372,80 @@ private:
   [[nodiscard]] constexpr size_t find_entry_index(std::basic_string_view<CharType> key) const noexcept;
   [[nodiscard]] constexpr size_t find_entry_index(std::basic_string_view<CharType> key,
     uint32_t target_hash) const noexcept;
-  [[nodiscard]] constexpr size_t
-    find_entry_index(std::basic_string_view<CharType> key, uint32_t target_hash, ObjectLayout layout) const noexcept;
+#if defined(_MSC_VER)
+  __declspec(noinline)
+#endif
+  [[nodiscard]] constexpr
+#if defined(__GNUC__) || defined(__clang__)
+    __attribute__((noinline))
+#endif
+    basic_entry_view_t<CharType>
+    find_other_layout_entry(std::basic_string_view<CharType> key,
+      uint32_t target_hash,
+      ObjectLayout layout) const noexcept
+  {
+    if (layout == ObjectLayout::CompactInline) {
+      const auto entries = data_storage_.compact_object_value;
+      for (size_t i = 0; i < length_; ++i)
+        if (entries[i].key->hash == target_hash && entries[i].key->view() == key)
+          return { { this, i }, &entries[i].value };
+      return {};
+    }
+    if (layout == ObjectLayout::BlobByReference) {
+      const auto entries = data_storage_.blob_ref_object_value;
+      const auto packed_hash = blob_target_hash(target_hash);
+      for (size_t i = 0; i < length_; ++i)
+        if (blob_key_hash(entries[i].key_meta) == packed_hash && blob_key_view(entries, entries[i]) == key)
+          return { { this, i }, entries[i].value };
+      return {};
+    }
+    const auto entries = data_storage_.ref_value_object_value;
+    for (size_t i = 0; i < length_; ++i)
+      if (entries[i].first.hash() == target_hash && entries[i].first.getString() == key)
+        return { { this, i }, entries[i].second };
+    return {};
+  }
+  template<ObjectLayout Layout>
+#if defined(_MSC_VER)
+  __declspec(noinline)
+#endif
+  [[nodiscard]] constexpr
+#if defined(__GNUC__) || defined(__clang__)
+    __attribute__((noinline))
+#endif
+    basic_entry_view_t<CharType>
+    find_mphf_layout_entry(std::basic_string_view<CharType> key, uint32_t target_hash) const noexcept
+  {
+    if constexpr (Layout == ObjectLayout::PerfectHashBlobByReference) {
+      const auto entries = data_storage_.blob_ref_object_value;
+      const auto object = mphf_blob_object();
+      const auto prefix_size = mphf_prefix_size(object, target_hash);
+      const auto packed_hash = blob_target_hash(target_hash);
+      for (size_t i = 0; i < prefix_size; ++i) {
+        const auto &entry = entries[i];
+        if (blob_key_hash(entry.key_meta) == packed_hash && blob_key_view(entries, entry) == key)
+          return { { this, i }, entry.value };
+      }
+      const auto index = find_mphf_blob_entry_index_after_prefix(object, key, target_hash);
+      return index == npos ? basic_entry_view_t<CharType>{}
+                           : basic_entry_view_t<CharType>{ { this, index }, entries[index].value };
+    } else {
+      static_assert(Layout == ObjectLayout::IndexedPerfectHashBlobByReference);
+      const auto object = indexed_mphf_blob_object();
+      const auto prefix_size = mphf_prefix_size(object, target_hash);
+      const auto packed_hash = static_cast<uint16_t>(target_hash);
+      for (size_t i = 0; i < prefix_size; ++i) {
+        if (object->prefix_hashes[i] != packed_hash) continue;
+        const auto &entry = object->entries[i];
+        if (indexed_blob_key_view(object, entry) == key)
+          return { { this, i }, &object->values[indexed_value_index(entry.key_meta)] };
+      }
+      const auto index = find_indexed_mphf_blob_entry_index_after_prefix(object, key, target_hash);
+      return index == npos ? basic_entry_view_t<CharType>{}
+                           : basic_entry_view_t<CharType>{ { this, index },
+                               &object->values[indexed_value_index(object->entries[index].key_meta)] };
+    }
+  }
   [[nodiscard]] constexpr const basic_json &at_regular_prehashed(std::basic_string_view<CharType> view,
     uint32_t target_hash) const
   {
@@ -551,6 +638,7 @@ public:
 
   constexpr bool operator==(const basic_json &other) const noexcept
   {
+    if (this == &other) return true;
     const auto t = type();
     if (t != other.type()) return false;
 
@@ -569,20 +657,17 @@ public:
       return getString() == other.getString();
     case Type::Array:
       if (length_ != other.length_) return false;
-      if (data_storage_.array_value == other.data_storage_.array_value) return true;
       for (size_t i = 0; i < length_; ++i)
         if (!(data_storage_.array_value[i] == other.data_storage_.array_value[i])) return false;
       return true;
     case Type::Object:
       if (length_ != other.length_) return false;
-      if (this == &other) return true;
       const auto layout = object_layout();
       const bool same_layout = layout == other.object_layout();
       if (same_layout) {
         if (layout == ObjectLayout::Regular) {
           const auto lhs_entries = data_storage_.object_value;
           const auto rhs_entries = other.data_storage_.object_value;
-          if (lhs_entries == rhs_entries) return true;
           for (size_t i = 0; i < length_; ++i) {
             if (lhs_entries[i].first.hash() != rhs_entries[i].first.hash()
                 || lhs_entries[i].first.getString() != rhs_entries[i].first.getString())
@@ -594,7 +679,6 @@ public:
         if (length_ >= 64u && layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
           const auto lhs_object = indexed_mphf_blob_object();
           const auto rhs_object = other.indexed_mphf_blob_object();
-          if (lhs_object == rhs_object) return true;
           for (size_t i = 0; i < length_; ++i) {
             const auto &lhs_entry = lhs_object->entries[i];
             const auto &rhs_entry = rhs_object->entries[i];
@@ -669,8 +753,17 @@ public:
   }
 
   template<typename Key>
+  [[nodiscard]] constexpr const basic_json &at(Key &&view) const
+    requires std::same_as<std::remove_cvref_t<Key>, std::basic_string_view<CharType>>
+  {
+    if (is_sorted_obj()) return entry_at(find_sorted_entry_index(view));
+    return at_prehashed(view, calc_hash(view));
+  }
+
+  template<typename Key>
   [[nodiscard]] constexpr const basic_json &at(const Key &key) const
-    requires(detail::string_like<Key, CharType> && !detail::char_array_like<Key, CharType>)
+    requires(detail::string_like<Key, CharType> && !detail::char_array_like<Key, CharType>
+             && !std::same_as<std::remove_cvref_t<Key>, std::basic_string_view<CharType>>)
   {
     const auto view = detail::make_string_view<CharType>(key);
     if (is_sorted_obj()) return entry_at(find_sorted_entry_index(view));
@@ -688,8 +781,16 @@ public:
   }
 
   template<typename Key>
+  [[nodiscard]] constexpr bool contains(Key &&key) const noexcept
+    requires std::same_as<std::remove_cvref_t<Key>, std::basic_string_view<CharType>>
+  {
+    return find_entry_index(key) != npos;
+  }
+
+  template<typename Key>
   [[nodiscard]] constexpr bool contains(const Key &key) const noexcept
-    requires(detail::string_like<Key, CharType> && !detail::char_array_like<Key, CharType>)
+    requires(detail::string_like<Key, CharType> && !detail::char_array_like<Key, CharType>
+             && !std::same_as<std::remove_cvref_t<Key>, std::basic_string_view<CharType>>)
   {
     const auto view = detail::make_string_view<CharType>(key);
     return find_entry_index(view) != npos;
@@ -763,9 +864,30 @@ public:
     if constexpr (detail::string_like<T, CharType>) {
       return index(detail::make_string_view<CharType>(value));
     } else {
+      if (length_ == 0) return npos;
+      const auto identity_index = [this, &value](const basic_json *first, size_t stride) {
+        if consteval {
+          return npos;
+        } else {
+          const auto address = reinterpret_cast<std::uintptr_t>(&value);
+          const auto first_address = reinterpret_cast<std::uintptr_t>(first);
+          if (address < first_address) return npos;
+          const auto distance = address - first_address;
+          return distance % stride == 0u && distance / stride < length_ ? distance / stride : npos;
+        }
+      };
+      const auto matches = [&value](const basic_json &current) {
+        if constexpr (std::same_as<std::remove_cvref_t<T>, basic_json>)
+          if (&current == &value) return true;
+        return current == value;
+      };
       if (is_array()) {
+        if constexpr (std::same_as<std::remove_cvref_t<T>, basic_json>) {
+          const auto index = identity_index(data_storage_.array_value, sizeof(basic_json));
+          if (index != npos) return index;
+        }
         for (size_t i = 0; i < length_; ++i)
-          if (data_storage_.array_value[i] == value) return i;
+          if (matches(data_storage_.array_value[i])) return i;
         return npos;
       }
 
@@ -773,22 +895,33 @@ public:
       const auto layout = object_layout();
       if (layout == ObjectLayout::Regular) {
         const auto entries = std::span(data_storage_.object_value, length_);
+        if constexpr (std::same_as<std::remove_cvref_t<T>, basic_json>) {
+          const auto index = identity_index(&entries[0].second, sizeof(basic_value_pair_t<CharType>));
+          if (index != npos) return index;
+          if (value.is_array() || value.is_object())
+            for (size_t i = 0; i < entries.size(); ++i)
+              if (entries[i].second.shares_storage_with(value)) return i;
+        }
         for (size_t i = 0; i < entries.size(); ++i)
-          if (entries[i].second == value) return i;
+          if (matches(entries[i].second)) return i;
         return npos;
       }
 
       if (layout == ObjectLayout::CompactInline) {
         const auto entries = std::span(data_storage_.compact_object_value, length_);
+        if constexpr (std::same_as<std::remove_cvref_t<T>, basic_json>) {
+          const auto index = identity_index(&entries[0].value, sizeof(basic_compact_value_pair_t<CharType>));
+          if (index != npos) return index;
+        }
         for (size_t i = 0; i < entries.size(); ++i)
-          if (entries[i].value == value) return i;
+          if (matches(entries[i].value)) return i;
         return npos;
       }
 
       if (is_blob_ref_layout(layout)) {
         const auto entries = std::span(data_storage_.blob_ref_object_value, length_);
         for (size_t i = 0; i < entries.size(); ++i)
-          if (*entries[i].value == value) return i;
+          if (matches(*entries[i].value)) return i;
         return npos;
       }
       if (layout == ObjectLayout::IndexedPerfectHashBlobByReference) {
@@ -796,13 +929,13 @@ public:
         const auto entries = object->entries;
         const auto values = object->values;
         for (size_t i = 0; i < length_; ++i)
-          if (values[indexed_value_index(entries[i].key_meta)] == value) return i;
+          if (matches(values[indexed_value_index(entries[i].key_meta)])) return i;
         return npos;
       }
 
       const auto entries = std::span(data_storage_.ref_value_object_value, length_);
       for (size_t i = 0; i < entries.size(); ++i)
-        if (*entries[i].second == value) return i;
+        if (matches(*entries[i].second)) return i;
       return npos;
     }
   }
@@ -981,7 +1114,7 @@ namespace detail {
 
   template<typename CharType, size_t EntryCount> struct basic_indexed_blob_storage_t
   {
-    static constexpr size_t prefix_size = EntryCount < 8u ? EntryCount : 8u;
+    static constexpr size_t prefix_size = EntryCount < 16u ? EntryCount : 16u;
 
     std::array<basic_indexed_blob_ref_value_pair_t<CharType>, EntryCount> entries{};
     std::array<uint8_t, EntryCount> value_hashes{};
@@ -1264,6 +1397,24 @@ constexpr const basic_json<CharType> &basic_json<CharType>::entry_value(size_t i
 template<typename CharType>
 constexpr size_t basic_json<CharType>::find_sorted_entry_index(std::basic_string_view<CharType> key) const noexcept
 {
+  const auto layout = object_layout();
+  if (layout == ObjectLayout::Regular) {
+    const auto entries = std::span(data_storage_.object_value, length_);
+    size_t first = 0;
+    size_t count = entries.size();
+    while (count > 0) {
+      const size_t step = count / 2;
+      const size_t index = first + step;
+      if (entries[index].first.getString() < key) {
+        first = index + 1;
+        count -= step + 1;
+      } else {
+        count = step;
+      }
+    }
+    return first < entries.size() && entries[first].first.getString() == key ? first : npos;
+  }
+
   const auto find_index = [this, key](auto get_key) {
     size_t first = 0;
     size_t count = length_;
@@ -1279,12 +1430,6 @@ constexpr size_t basic_json<CharType>::find_sorted_entry_index(std::basic_string
     }
     return first < length_ && get_key(first) == key ? first : npos;
   };
-
-  const auto layout = object_layout();
-  if (layout == ObjectLayout::Regular) {
-    const auto entries = data_storage_.object_value;
-    return find_index([entries](size_t index) { return entries[index].first.getString(); });
-  }
 
   if (layout == ObjectLayout::CompactInline) {
     const auto entries = data_storage_.compact_object_value;
@@ -1304,6 +1449,7 @@ template<typename CharType>
 constexpr size_t basic_json<CharType>::find_entry_index(std::basic_string_view<CharType> key) const noexcept
 {
   if (!is_object() || length_ == 0) return npos;
+  if (is_blob_ref_layout(object_layout())) return find_entry_index(key, calc_hash(key));
   if (is_sorted_obj()) return find_sorted_entry_index(key);
   return find_entry_index(key, calc_hash(key));
 }
@@ -1381,16 +1527,7 @@ constexpr size_t basic_json<CharType>::find_entry_index(std::basic_string_view<C
   uint32_t target_hash) const noexcept
 {
   if (!is_object() || length_ == 0) return npos;
-  if (is_sorted_obj()) return find_sorted_entry_index(key);
-
-  return find_entry_index(key, target_hash, object_layout());
-}
-
-template<typename CharType>
-constexpr size_t basic_json<CharType>::find_entry_index(std::basic_string_view<CharType> key,
-  uint32_t target_hash,
-  ObjectLayout layout) const noexcept
-{
+  const auto layout = object_layout();
   if (layout == ObjectLayout::Regular) {
     const auto entries = std::span(data_storage_.object_value, length_);
     for (size_t i = 0; i < entries.size(); ++i)
@@ -1443,23 +1580,21 @@ constexpr basic_entry_view_t<CharType> basic_json<CharType>::find_entry(std::bas
   uint32_t target_hash) const noexcept
 {
   if (!is_object() || length_ == 0) return {};
-  if (is_sorted_obj()) [[unlikely]] {
-    const auto index = find_sorted_entry_index(key);
-    return index == npos ? basic_entry_view_t<CharType>{}
-                         : basic_entry_view_t<CharType>{ { this, index }, &entry_value(index) };
-  }
   const auto layout = object_layout();
-  if (layout == ObjectLayout::Regular) {
-    const auto entries = data_storage_.object_value;
-    for (size_t i = 0; i < length_; ++i)
-      if (entries[i].first.hash() == target_hash && entries[i].first.getString() == key)
-        return { { this, i }, &entries[i].second };
-    return {};
+  if (layout == ObjectLayout::Regular) [[likely]] {
+    const auto entry = find_regular_entry(key, target_hash);
+    return entry == nullptr
+             ? basic_entry_view_t<CharType>{}
+             : basic_entry_view_t<CharType>{ { this, static_cast<size_t>(entry - data_storage_.object_value) },
+                 &entry->second };
   }
 
-  const auto index = find_entry_index(key, target_hash, layout);
-  return index == npos ? basic_entry_view_t<CharType>{}
-                       : basic_entry_view_t<CharType>{ { this, index }, &entry_value(index) };
+  if (layout == ObjectLayout::PerfectHashBlobByReference)
+    return find_mphf_layout_entry<ObjectLayout::PerfectHashBlobByReference>(key, target_hash);
+  if (layout == ObjectLayout::IndexedPerfectHashBlobByReference)
+    return find_mphf_layout_entry<ObjectLayout::IndexedPerfectHashBlobByReference>(key, target_hash);
+
+  return find_other_layout_entry(key, target_hash, layout);
 }
 
 template<typename CharType>

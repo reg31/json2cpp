@@ -499,7 +499,7 @@ struct Mphf8Plan
   std::uint8_t seed2 = 0;
 };
 
-constexpr std::size_t mphf_linear_prefix = 8;
+constexpr std::size_t mphf_linear_prefix = 16;
 
 struct Mphf8TableInfo
 {
