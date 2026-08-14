@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2026 Jason Turner, Regis Duflaut-Averty
+Copyright (c) 2022 Jason Turner
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
