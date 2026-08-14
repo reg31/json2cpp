@@ -272,6 +272,19 @@ const std::uint32_t name_hash = config["name"].hash();
 
 ### Object lookup
 
+> [!TIP]
+> Pass keys directly as string literals to `at()`, `operator[]`, and `contains()` when
+> they are known at compile time. These calls are prehashed with `consteval`. Adding the
+> `sv` suffix or storing the key in a `std::string_view` selects the runtime-key overload,
+> even when the view refers to a literal; compiler folding is not a library guarantee.
+
+```cpp
+using namespace std::string_view_literals;
+
+config.contains("name");   // Guaranteed compile-time key hashing.
+config.contains("name"sv); // Runtime-key lookup.
+```
+
 #### `at()`
 
 `at()` returns a `const json &`. String literals are hashed at compile time through a
@@ -329,8 +342,8 @@ const bool found = config.contains(dynamic_key); // false
 #### `find_entry()`
 
 `find_entry()` returns a nullable `entry_view_t`. `first` is a zero-copy key proxy and
-`second` is a pointer to the stored value. Literal keys are hashed at compile time;
-dynamic string-like keys are hashed at runtime.
+`second` is a pointer to the stored value. Use `CompileTimeKey` to guarantee compile-time
+hashing, or pass a precomputed hash when repeatedly looking up a runtime key.
 
 ```cpp
 const auto entry = config.find_entry("name");
@@ -634,4 +647,4 @@ static_assert(document["retries"] == 3);
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE)
