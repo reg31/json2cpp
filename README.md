@@ -33,7 +33,7 @@ library; they compile the generated `.cpp` file and include the header-only API.
 
 Download and extract the package for your platform from
 [GitHub Releases](https://github.com/reg31/json2cpp/releases). The package contains the
-`json2cpp` executable and `include/json2cpp/json2cpp.hpp`.
+`json2cpp` executable, the runtime header, and the optional ValiJSON adapter header.
 
 Add the executable to `PATH`, or invoke it using its full path.
 
@@ -41,13 +41,14 @@ Add the executable to `PATH`, or invoke it using its full path.
 
 ```console
 git clone https://github.com/reg31/json2cpp.git
-cmake -S json2cpp -B json2cpp/build -DCMAKE_BUILD_TYPE=Release -Djson2cpp_PACKAGING_MAINTAINER_MODE=ON
+cmake -S json2cpp -B json2cpp/build -DCMAKE_BUILD_TYPE=Release
 cmake --build json2cpp/build --config Release --target json2cpp
+ctest --test-dir json2cpp/build --output-on-failure
 ```
 
 With a single-configuration generator, the executable is normally under
-`json2cpp/build/src`. With Visual Studio or another multi-configuration generator, it
-is normally under `json2cpp/build/src/Release`.
+`json2cpp/build`. With Visual Studio or another multi-configuration generator, it is
+normally under `json2cpp/build/Release`.
 
 ### Add the header to your project
 
@@ -75,6 +76,19 @@ target_compile_features(my_app PRIVATE cxx_std_23)
 
 No generator dependency is required when building or running the application after the
 generated files have been created.
+
+### ValiJSON adapter
+
+`json2cpp_adapter.hpp` provides a read-only ValiJSON adapter for generated documents:
+
+```cpp
+#include <json2cpp/json2cpp_adapter.hpp>
+
+const valijson::adapters::json2cppJsonAdapter adapter{compiled_json::config::get()};
+```
+
+ValiJSON is only required by consumers that include this adapter. As with `json2cpp`
+itself, the adapted document and its backing storage must outlive the adapter.
 
 ## Generate a document
 
@@ -260,8 +274,14 @@ const std::uint32_t name_hash = config["name"].hash();
 
 #### `at()`
 
-`at()` returns a `const json &`. String literals are hashed at compile time; generic
-string-like keys are accepted through `std::string_view` conversion.
+`at()` returns a `const json &`. String literals are hashed at compile time through a
+`consteval` key conversion, independent of compiler optimization. Runtime keys use
+binary search without hashing for sorted objects; other layouts hash through a
+`std::string_view` conversion.
+
+Named character arrays that are populated at runtime should be passed as
+`std::string_view`; unlike a string literal, their contents cannot be hashed at compile
+time.
 
 ```cpp
 const auto &name = config.at("name");
@@ -294,8 +314,8 @@ const auto &second_tag = config["tags"][1];
 
 #### `contains()`
 
-`contains()` tests object keys without throwing. Literal keys use a compile-time hash.
-It returns `false` for non-object values.
+`contains()` tests object keys without throwing. Literal keys are guaranteed to use a
+compile-time hash. It returns `false` for non-object values.
 
 ```cpp
 if (config.contains("threshold")) {
@@ -309,7 +329,8 @@ const bool found = config.contains(dynamic_key); // false
 #### `find_entry()`
 
 `find_entry()` returns a nullable `entry_view_t`. `first` is a zero-copy key proxy and
-`second` is a pointer to the stored value.
+`second` is a pointer to the stored value. Literal keys are hashed at compile time;
+dynamic string-like keys are hashed at runtime.
 
 ```cpp
 const auto entry = config.find_entry("name");
@@ -613,4 +634,4 @@ static_assert(document["retries"] == 3);
 
 ## License
 
-MIT. See [LICENSE](LICENSE)
+MIT. See [LICENSE](LICENSE).
