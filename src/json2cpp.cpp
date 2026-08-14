@@ -26,6 +26,9 @@ SOFTWARE.
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -40,9 +43,17 @@ SOFTWARE.
 #include <utility>
 #include <vector>
 
-#include "json2cpp_generator.hpp"
+#ifndef JSON2CPP_VERSION
+#define JSON2CPP_VERSION "development"
+#endif
 
 namespace {
+
+struct compile_results
+{
+  std::vector<std::string> hpp;
+  std::vector<std::string> impl;
+};
 
 std::string sanitize_identifier(std::string_view name)
 {
@@ -1215,13 +1226,6 @@ namespace compiled_json::{}::impl {{
   return results;
 }
 
-}// namespace
-
-compile_results compile(const std::string_view document_name, const nlohmann::json &json)
-{
-  return compile_impl(document_name, nlohmann::ordered_json(json));
-}
-
 compile_results compile(const std::string_view document_name, const std::filesystem::path &filename)
 {
   std::cout << "Loading file: '" << filename.string() << "'\n";
@@ -1267,15 +1271,39 @@ void write_compilation(std::string_view document_name,
 }
 
 void compile_to(const std::string_view document_name,
-  const nlohmann::json &json,
-  const std::filesystem::path &base_output)
-{
-  write_compilation(document_name, compile(document_name, json), base_output);
-}
-
-void compile_to(const std::string_view document_name,
   const std::filesystem::path &filename,
   const std::filesystem::path &base_output)
 {
   write_compilation(document_name, compile(document_name, filename), base_output);
+}
+
+}// namespace
+
+int main(int argc, char **argv)
+{
+  constexpr std::string_view usage = "Usage: json2cpp <document_name> <input_file_name> <output_base_name>\n";
+
+  if (argc == 2) {
+    const std::string_view option = argv[1];
+    if (option == "--version") {
+      std::puts(JSON2CPP_VERSION);
+      return EXIT_SUCCESS;
+    }
+    if (option == "--help" || option == "-h") {
+      std::fputs(usage.data(), stdout);
+      return EXIT_SUCCESS;
+    }
+  }
+  if (argc != 4) {
+    std::fputs(usage.data(), stderr);
+    return EXIT_FAILURE;
+  }
+
+  try {
+    compile_to(argv[1], argv[2], argv[3]);
+    return EXIT_SUCCESS;
+  } catch (const std::exception &error) {
+    std::fprintf(stderr, "json2cpp: %s\n", error.what());
+    return EXIT_FAILURE;
+  }
 }
