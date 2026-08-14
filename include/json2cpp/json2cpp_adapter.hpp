@@ -51,9 +51,9 @@ class json2cppJsonObjectMemberIterator;
 using json2cppJsonObjectMember = std::pair<std::string, json2cppJsonAdapter>;
 
 namespace json2cpp_adapter_detail {
-inline constexpr json2cpp::json empty_array{json2cpp::array_t{}};
-inline constexpr json2cpp::json empty_object{json2cpp::object_t{}};
-}
+  inline constexpr json2cpp::json empty_array{ json2cpp::array_t{} };
+  inline constexpr json2cpp::json empty_object{ json2cpp::object_t{} };
+}// namespace json2cpp_adapter_detail
 
 class json2cppJsonArrayValueIterator
 {
@@ -65,7 +65,8 @@ public:
   using reference = value_type;
 
   constexpr json2cppJsonArrayValueIterator(const json2cpp::json *owner, std::size_t index) noexcept
-    : m_owner(owner), m_index(index) {}
+    : m_owner(owner), m_index(index)
+  {}
 
   value_type operator*() const;
   DerefProxy<value_type> operator->() const;
@@ -73,16 +74,28 @@ public:
   constexpr bool operator==(const json2cppJsonArrayValueIterator &) const noexcept = default;
 
   constexpr json2cppJsonArrayValueIterator &operator++() noexcept
-  { ++m_index; return *this; }
+  {
+    ++m_index;
+    return *this;
+  }
 
   constexpr json2cppJsonArrayValueIterator operator++(int) noexcept
-  { auto previous = *this; ++(*this); return previous; }
+  {
+    auto previous = *this;
+    ++(*this);
+    return previous;
+  }
 
   constexpr json2cppJsonArrayValueIterator &operator--() noexcept
-  { --m_index; return *this; }
+  {
+    --m_index;
+    return *this;
+  }
 
   constexpr void advance(difference_type offset) noexcept
-  { m_index = static_cast<std::size_t>(static_cast<difference_type>(m_index) + offset); }
+  {
+    m_index = static_cast<std::size_t>(static_cast<difference_type>(m_index) + offset);
+  }
 
 private:
   const json2cpp::json *m_owner = nullptr;
@@ -99,7 +112,8 @@ public:
   using reference = value_type;
 
   constexpr json2cppJsonObjectMemberIterator(const json2cpp::json *owner, std::size_t index) noexcept
-    : m_owner(owner), m_index(index) {}
+    : m_owner(owner), m_index(index)
+  {}
 
   value_type operator*() const;
   DerefProxy<value_type> operator->() const;
@@ -107,13 +121,23 @@ public:
   constexpr bool operator==(const json2cppJsonObjectMemberIterator &) const noexcept = default;
 
   constexpr json2cppJsonObjectMemberIterator &operator++() noexcept
-  { ++m_index; return *this; }
+  {
+    ++m_index;
+    return *this;
+  }
 
   constexpr json2cppJsonObjectMemberIterator operator++(int) noexcept
-  { auto previous = *this; ++(*this); return previous; }
+  {
+    auto previous = *this;
+    ++(*this);
+    return previous;
+  }
 
   constexpr json2cppJsonObjectMemberIterator &operator--() noexcept
-  { --m_index; return *this; }
+  {
+    --m_index;
+    return *this;
+  }
 
 private:
   const json2cpp::json *m_owner = nullptr;
@@ -190,7 +214,9 @@ public:
   FrozenValue *freeze() const { return new json2cppJsonFrozenValue(m_value); }
 
   [[nodiscard]] std::optional<json2cppJsonArray> getArrayOptional() const
-  { return m_value.is_array() ? std::optional{json2cppJsonArray{m_value}} : std::nullopt; }
+  {
+    return m_value.is_array() ? std::optional{ json2cppJsonArray{ m_value } } : std::nullopt;
+  }
 
   bool getArraySize(std::size_t &result) const noexcept
   {
@@ -227,7 +253,9 @@ public:
   }
 
   [[nodiscard]] std::optional<json2cppJsonObject> getObjectOptional() const
-  { return m_value.is_object() ? std::optional{json2cppJsonObject{m_value}} : std::nullopt; }
+  {
+    return m_value.is_object() ? std::optional{ json2cppJsonObject{ m_value } } : std::nullopt;
+  }
 
   bool getObjectSize(std::size_t &result) const noexcept
   {
@@ -250,23 +278,26 @@ public:
   [[nodiscard]] bool isBool() const noexcept { return m_value.is_boolean(); }
 
   [[nodiscard]] bool isDouble() const noexcept
-  { return m_value.type() == json2cpp::json::Type::Float && std::isfinite(m_value.getNumber()); }
+  {
+    return m_value.type() == json2cpp::json::Type::Float && std::isfinite(m_value.getNumber());
+  }
 
   [[nodiscard]] bool isInteger() const
   {
     if (m_value.type() == json2cpp::json::Type::Integer) return true;
     return m_value.type() == json2cpp::json::Type::UInteger
-        && m_value.get<std::uint64_t>() <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+           && m_value.get<std::uint64_t>() <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
   }
 
   [[nodiscard]] bool isNull() const noexcept
   {
-    return m_value.is_null()
-        || (m_value.type() == json2cpp::json::Type::Float && !std::isfinite(m_value.getNumber()));
+    return m_value.is_null() || (m_value.type() == json2cpp::json::Type::Float && !std::isfinite(m_value.getNumber()));
   }
 
   [[nodiscard]] bool isNumber() const noexcept
-  { return m_value.is_number() && (m_value.type() != json2cpp::json::Type::Float || std::isfinite(m_value.getNumber())); }
+  {
+    return m_value.is_number() && (m_value.type() != json2cpp::json::Type::Float || std::isfinite(m_value.getNumber()));
+  }
 
   [[nodiscard]] bool isObject() const noexcept { return m_value.is_object(); }
   [[nodiscard]] bool isString() const noexcept { return m_value.is_string(); }
@@ -284,36 +315,41 @@ class json2cppJsonAdapter
 {
 public:
   json2cppJsonAdapter() = default;
-  explicit json2cppJsonAdapter(const json2cpp::json &value) : BasicAdapter(json2cppJsonValue{value}) {}
+  explicit json2cppJsonAdapter(const json2cpp::json &value) : BasicAdapter(json2cppJsonValue{ value }) {}
 };
 
 inline json2cppJsonArrayValueIterator::value_type json2cppJsonArrayValueIterator::operator*() const
-{ return json2cppJsonAdapter{m_owner->at(m_index)}; }
+{
+  return json2cppJsonAdapter{ m_owner->at(m_index) };
+}
 
-inline DerefProxy<json2cppJsonArrayValueIterator::value_type>
-json2cppJsonArrayValueIterator::operator->() const
-{ return DerefProxy<value_type>{**this}; }
+inline DerefProxy<json2cppJsonArrayValueIterator::value_type> json2cppJsonArrayValueIterator::operator->() const
+{
+  return DerefProxy<value_type>{ **this };
+}
 
 inline json2cppJsonObjectMemberIterator::value_type json2cppJsonObjectMemberIterator::operator*() const
 {
-  const json2cpp::item_key_t key{m_owner, m_index};
-  return {std::string{key.getString()}, json2cppJsonAdapter{m_owner->at(m_index)}};
+  const json2cpp::item_key_t key{ m_owner, m_index };
+  return { std::string{ key.getString() }, json2cppJsonAdapter{ m_owner->at(m_index) } };
 }
 
-inline DerefProxy<json2cppJsonObjectMemberIterator::value_type>
-json2cppJsonObjectMemberIterator::operator->() const
-{ return DerefProxy<value_type>{**this}; }
+inline DerefProxy<json2cppJsonObjectMemberIterator::value_type> json2cppJsonObjectMemberIterator::operator->() const
+{
+  return DerefProxy<value_type>{ **this };
+}
 
-template<>
-struct AdapterTraits<json2cppJsonAdapter>
+template<> struct AdapterTraits<json2cppJsonAdapter>
 {
   using DocumentType = json2cpp::json;
   static std::string adapterName() { return "json2cppJsonAdapter"; }
 };
 
 inline bool json2cppJsonFrozenValue::equalTo(const Adapter &other, bool strict) const
-{ return json2cppJsonAdapter{m_value}.equalTo(other, strict); }
-
+{
+  return json2cppJsonAdapter{ m_value }.equalTo(other, strict);
 }
+
+}// namespace valijson::adapters
 
 #endif
