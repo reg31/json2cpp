@@ -635,6 +635,11 @@ std::uint32_t mphf_mix(std::uint32_t value, const std::uint32_t seed)
   return value;
 }
 
+constexpr std::uint32_t mphf_pilot_mix(const std::uint32_t value, const std::uint32_t pilot)
+{
+  return ((value << 16u) | (value >> 16u)) ^ ((pilot + 1u) * 0x9e3779b9u);
+}
+
 std::uint32_t mphf_reduce(const std::uint32_t value, const std::uint32_t range)
 {
   return static_cast<std::uint32_t>((static_cast<std::uint64_t>(value) * range) >> 32u);
@@ -663,7 +668,6 @@ bool try_build_mphf8_plan(const std::vector<std::uint32_t> &hashes,
   const std::uint8_t seed2)
 {
   const auto size = static_cast<std::uint8_t>(hashes.size());
-
   std::array<bool, 256> used{};
   plan.displacements.assign(bucket_count, 0);
   plan.slots.assign(size, 0xFFu);
@@ -678,8 +682,9 @@ bool try_build_mphf8_plan(const std::vector<std::uint32_t> &hashes,
     for (std::uint16_t displacement = 0; displacement < size && !placed; ++displacement) {
       bool collision = false;
       for (const auto key_index : bucket) {
+        const auto mixed_hash = mphf_mix(hashes[key_index], seed1);
         const auto slot =
-          static_cast<std::uint8_t>(mphf_reduce(mphf_mix(hashes[key_index], seed2 + displacement), size));
+          static_cast<std::uint8_t>(mphf_reduce(mphf_pilot_mix(mixed_hash, seed2 + displacement), size));
         if (used[slot] || trial_used[slot] == trial_generation) {
           collision = true;
           break;
@@ -691,8 +696,9 @@ bool try_build_mphf8_plan(const std::vector<std::uint32_t> &hashes,
 
       plan.displacements[bucket_index] = static_cast<std::uint8_t>(displacement);
       for (const auto key_index : bucket) {
+        const auto mixed_hash = mphf_mix(hashes[key_index], seed1);
         const auto slot =
-          static_cast<std::uint8_t>(mphf_reduce(mphf_mix(hashes[key_index], seed2 + displacement), size));
+          static_cast<std::uint8_t>(mphf_reduce(mphf_pilot_mix(mixed_hash, seed2 + displacement), size));
         used[slot] = true;
         plan.slots[slot] = key_index;
       }
@@ -958,9 +964,10 @@ std::string emit_object(const nlohmann::ordered_json &value, EmitContext &ctx, c
   Mphf8Plan utf8_mphf, utf16_mphf;
   const bool use_mphf = layout == ObjectLayout::BlobByReference && build_mphf8_plan(value, false, utf8_mphf)
                         && build_mphf8_plan(value, true, utf16_mphf);
-  if (use_mphf)
+  if (use_mphf) {
     layout = can_use_indexed_mphf_values(value, ctx) ? ObjectLayout::IndexedPerfectHashBlobByReference
                                                      : ObjectLayout::PerfectHashBlobByReference;
+  }
 
   if (layout == ObjectLayout::CompactInline) ctx.layout_usage.uses_compact_inline = true;
   if (layout == ObjectLayout::ValueByReference) ctx.layout_usage.uses_value_ref = true;
