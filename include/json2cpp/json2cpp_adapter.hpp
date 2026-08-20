@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2022 Jason Turner
+Copyright (c) 2026 Jason Turner, Regis Duflaut-Averty
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -184,7 +184,7 @@ public:
   [[nodiscard]] const_iterator find(std::string_view property_name) const noexcept
   {
     const auto entry = m_value.find_entry(property_name);
-    return { &m_value, entry ? entry->first.index : m_value.size() };
+    return { &m_value, entry ? m_value.index(*entry->second) : m_value.size() };
   }
 
   [[nodiscard]] std::size_t size() const noexcept { return m_value.size(); }
