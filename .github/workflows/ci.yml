@@ -13,7 +13,7 @@ jobs:
           sudo apt-get install -y clang ninja-build
       
       - name: Configure CMake
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING=-s -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING=-s -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
       
       - name: Build
         run: cmake --build ./build --config Release
@@ -44,8 +44,7 @@ jobs:
           xcode-version: latest-stable
       
       - name: Configure CMake
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="-Wl,-S -Wl,-x" -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }}
-      
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_CXX_COMPILER:FILEPATH=cl -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE:BOOL=ON -DCMAKE_CXX_FLAGS:STRING="/Gy /Gw" -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="/INCREMENTAL:NO /OPT:REF /OPT:ICF=5"
       - name: Build
         run: cmake --build ./build --config Release
       
