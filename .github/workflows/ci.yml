@@ -1,36 +1,40 @@
 name: Build json2cpp
-on: workflow_dispatch
+
+on:
+  workflow_dispatch:
 
 jobs:
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      
+
       - name: Set up Clang
         run: |
           sudo apt-get update
           sudo apt-get install -y clang ninja-build
-      
+
       - name: Configure CMake
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING=-s -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-      
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_CXX_COMPILER:FILEPATH=clang++ -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING=-s
+
       - name: Build
-        run: cmake --build ./build --config Release
-      
+        run: cmake --build build --config Release
+
       - name: CPack TBZ2
-        working-directory: ./build
+        working-directory: build
         run: cpack -C Release -G TBZ2
-      
+
       - name: CPack ZIP
-        working-directory: ./build
+        working-directory: build
         run: cpack -C Release -G ZIP
-      
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: json2cpp-ubuntu
-          path: build/*-*Release*-*.*
+          path: |
+            build/*.tar.bz2
+            build/*.zip
           retention-days: 5
 
   build-macos:
@@ -38,89 +42,92 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Setup xcode
+      - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
-      
+
       - name: Configure CMake
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_CXX_COMPILER:FILEPATH=cl -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE:BOOL=ON -DCMAKE_CXX_FLAGS:STRING="/Gy /Gw" -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="/INCREMENTAL:NO /OPT:REF /OPT:ICF=5"
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="-Wl,-S -Wl,-x"
+
       - name: Build
-        run: cmake --build ./build --config Release
-      
+        run: cmake --build build --config Release
+
       - name: CPack TBZ2
-        working-directory: ./build
+        working-directory: build
         run: cpack -C Release -G TBZ2
-      
+
       - name: CPack ZIP
-        working-directory: ./build
+        working-directory: build
         run: cpack -C Release -G ZIP
-      
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: json2cpp-macos
-          path: build/*-*Release*-*.*
+          path: |
+            build/*.tar.bz2
+            build/*.zip
           retention-days: 5
 
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-      
+
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      
+
       - name: Configure CMake
-        run: cmake -S . -B ./build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_FLAGS_RELEASE:STRING="/O2 /Ob2 /DNDEBUG /Gy /Gw /wd4996" -DCMAKE_CXX_FLAGS_RELEASE:STRING="/O2 /Ob2 /DNDEBUG /Gy /Gw /wd4996" -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="/OPT:REF /OPT:ICF /DEBUG:NONE" -Djson2cpp_PACKAGING_MAINTAINER_MODE:BOOL=ON -Djson2cpp_ENABLE_CPPCHECK:BOOL=OFF -DGIT_SHA:STRING=${{ github.sha }}
-      
+        shell: pwsh
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_CXX_COMPILER:FILEPATH=cl -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE:BOOL=ON -DCMAKE_CXX_FLAGS:STRING="/Gy /Gw" -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="/INCREMENTAL:NO /OPT:REF /OPT:ICF=5"
+
       - name: Build
-        run: cmake --build ./build --config Release
-      
+        run: cmake --build build --config Release --verbose
+
       - name: CPack TBZ2
-        working-directory: ./build
+        working-directory: build
         run: cpack -C Release -G TBZ2
-      
+
       - name: CPack ZIP
-        working-directory: ./build
+        working-directory: build
         run: cpack -C Release -G ZIP
-      
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: json2cpp-windows
-          path: build/*-*Release*-*.*
+          path: |
+            build/*.tar.bz2
+            build/*.zip
           retention-days: 5
 
   release:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     needs: [build-ubuntu, build-macos, build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
           path: json2cpp-builds
-      
+
       - name: Publish Snapshot Release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v3
-        if: ${{ github.ref == 'refs/heads/main' }}
         with:
-          tag_name: "snapshot-${{ github.sha }}"
-          files: |
-            json2cpp-builds/json2cpp-ubuntu/*-*Release*-*.*
-            json2cpp-builds/json2cpp-macos/*-*Release*-*.*
-            json2cpp-builds/json2cpp-windows/*-*Release*-*.*
-      
+          tag_name: snapshot-${{ github.sha }}
+          files: json2cpp-builds/json2cpp-*/*
+
       - name: Publish Tagged Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
-          files: |
-            json2cpp-builds/json2cpp-ubuntu/*-*Release*-*.*
-            json2cpp-builds/json2cpp-macos/*-*Release*-*.*
-            json2cpp-builds/json2cpp-windows/*-*Release*-*.*
+          files: json2cpp-builds/json2cpp-*/*
 
       - name: Cleanup repository
         uses: dev-drprasad/delete-older-releases@v0.3.4
