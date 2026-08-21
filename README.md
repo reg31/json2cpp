@@ -2,42 +2,54 @@
 
 [![CI](https://github.com/reg31/json2cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/reg31/json2cpp/actions/workflows/ci.yml)
 
-`json2cpp` compiles JSON documents into static C++23 data. Loading requires no parsing,
-filesystem access, heap allocation, or runtime initialization. The generated values can
-be queried at compile time or runtime through a small, read-only JSON API.
+`json2cpp` compiles JSON documents into immutable C++23 data. Generated documents
+require no parsing, filesystem access, heap allocation, or runtime initialization.
+They expose a small, read-only JSON API that works at runtime and during constant
+evaluation.
 
 ## Highlights
 
-- Static, immutable JSON with a 16-byte `json2cpp::json` value on 64-bit targets.
-- `constexpr` lookup, iteration, comparison, and conversion.
-- Prehashed keys and generated compact, reference, blob, and perfect-hash layouts.
-- Zero-copy object views from `find_entry()` and `items()`.
-- UTF-8 (`char`) by default and optional UTF-16 (`char16_t`).
-- A generated `.cpp` firewall keeps large resources from being compiled in every
-  translation unit.
+- A `json2cpp::json` value occupies 16 bytes on 64-bit targets.
+- Strings, arrays, objects, keys, and values are non-owning and allocation-free.
+- Objects use contiguous 32-byte key/value pairs, so `items()` is a zero-copy
+  random-access span.
+- String literals passed to `at()`, `operator[]`, and `contains()` are prehashed with
+  `consteval`.
+- Dense objects keyed `"0"`, `"1"`, ... use direct numeric lookup.
+- Objects with 64 to 255 keys receive a compile-time byte-sized side index while
+  preserving their contiguous pair storage and source order.
+- Naturally sorted regular objects use binary search; other regular objects use
+  hash-first linear search.
+- UTF-8 (`char`) is the default; UTF-16 (`char16_t`) is optional.
+- A generated `.cpp` firewall keeps large resources out of consumer translation units.
 
-`json2cpp` intentionally implements a focused subset of the nlohmann JSON API. It is
-read-only and does not parse, allocate, mutate, or own JSON data at runtime.
+The library intentionally implements a focused subset of the nlohmann JSON API. It
+does not parse, mutate, allocate, or own JSON data at runtime.
 
 ## Requirements
 
 - A C++23 compiler.
-- CMake when building the generator.
+- CMake 3.28 or newer when building the generator.
+
+Object, array, and string lengths are stored as 32-bit values. Generated documents
+must therefore contain fewer than `UINT32_MAX` elements in any single container or
+string. The byte side index is used only when an object has at most 255 keys; larger
+objects automatically remain regular objects.
 
 ## Installation
 
-The generator is a build-time tool. Applications do not link a json2cpp runtime
-library; they compile the generated `.cpp` file and include the header-only API.
+Applications need the generator at build time and `json2cpp.hpp` at compile time.
+There is no runtime library to link.
 
-### Download the generator
+### Download a release
 
 Download and extract the package for your platform from
-[GitHub Releases](https://github.com/reg31/json2cpp/releases). The package contains the
-`json2cpp` executable, the runtime header, and the optional ValiJSON adapter header.
+[GitHub Releases](https://github.com/reg31/json2cpp/releases). It contains the
+`json2cpp` executable, `json2cpp.hpp`, and the optional ValiJSON adapter.
 
-Add the executable to `PATH`, or invoke it using its full path.
+Add the generator to `PATH`, or invoke it using its full path.
 
-### Build the generator with CMake
+### Build with CMake
 
 ```console
 git clone https://github.com/reg31/json2cpp.git
@@ -46,24 +58,20 @@ cmake --build json2cpp/build --config Release --target json2cpp
 ctest --test-dir json2cpp/build --output-on-failure
 ```
 
-With a single-configuration generator, the executable is normally under
-`json2cpp/build`. With Visual Studio or another multi-configuration generator, it is
-normally under `json2cpp/build/Release`.
+### Add the header to an application
 
-### Add the header to your project
-
-Copy the header from the source tree or extracted package while preserving its include
-path:
+Preserve the include path expected by generated files:
 
 ```text
 your-project/
   include/
     json2cpp/
       json2cpp.hpp
+  generated/
+    config.hpp
+    config.cpp
+    config_impl.hpp
 ```
-
-Generated files use `#include <json2cpp/json2cpp.hpp>`, so add `your-project/include`
-to the compiler's include paths. A minimal CMake consumer setup is:
 
 ```cmake
 target_sources(my_app PRIVATE generated/config.cpp)
@@ -74,21 +82,22 @@ target_include_directories(my_app PRIVATE
 target_compile_features(my_app PRIVATE cxx_std_23)
 ```
 
-No generator dependency is required when building or running the application after the
-generated files have been created.
+Use the header and generator from the same release. Regenerate documents after an
+incompatible storage-layout update.
 
 ### ValiJSON adapter
 
-`json2cpp_adapter.hpp` provides a read-only ValiJSON adapter for generated documents:
+Consumers that use ValiJSON can include `json2cpp_adapter.hpp`:
 
 ```cpp
 #include <json2cpp/json2cpp_adapter.hpp>
 
-const valijson::adapters::json2cppJsonAdapter adapter{compiled_json::config::get()};
+const valijson::adapters::json2cppJsonAdapter adapter{
+  compiled_json::config::get()
+};
 ```
 
-ValiJSON is only required by consumers that include this adapter. As with `json2cpp`
-itself, the adapted document and its backing storage must outlive the adapter.
+ValiJSON is not required by other consumers.
 
 ## Generate a document
 
@@ -114,17 +123,9 @@ Run:
 json2cpp config config.json generated/config
 ```
 
-The arguments are the generated namespace name, input JSON file, and output base path.
-This creates:
-
-```text
-generated/config.hpp
-generated/config.cpp
-generated/config_impl.hpp
-```
-
-Compile `config.cpp` once, add the generated directory to the include path, and include
-`config.hpp` where the document is used:
+The arguments are the generated namespace name, input file, and output base path. The
+command creates `config.hpp`, `config.cpp`, and `config_impl.hpp`. Compile `config.cpp`
+once and include `config.hpp` wherever the document is used:
 
 ```cpp
 #include "generated/config.hpp"
@@ -132,8 +133,7 @@ Compile `config.cpp` once, add the generated directory to the include path, and 
 const json2cpp::json &config = compiled_json::config::get();
 ```
 
-The generated accessor returns a reference to immutable static data. It performs no
-runtime loading or allocation.
+The accessor returns immutable static data and performs no runtime loading.
 
 ## Quick start
 
@@ -141,8 +141,6 @@ runtime loading or allocation.
 #include "generated/config.hpp"
 
 #include <string_view>
-
-using namespace std::literals;
 
 const auto &config = compiled_json::config::get();
 
@@ -155,80 +153,61 @@ for (const auto &tag : config["tags"]) {
 }
 
 for (const auto &[key, value] : config.items()) {
-  const std::string_view key_view = key.getString();
+  const std::string_view key_text = key.getString();
+  (void)key_text;
   (void)value;
 }
 ```
 
-## Breaking change: `find_entry()`
+## V5 breaking changes
 
-`find_entry()` returns `json2cpp::entry_view_t` by value. It no longer returns
-`const json2cpp::value_pair_t *` because compact generated layouts do not physically
-store a `value_pair_t`. Synthesizing one required copying a JSON value, thread-local
-caching, and possible allocation.
+V5 replaces the multi-layout proxy architecture with contiguous stored pairs and
+optional side indexes. Public method names and behavior remain the same, but two exact
+return types changed:
 
-The new result is a nullable, zero-copy, pointer-like view:
+- `find_entry()` returns `const json2cpp::value_pair_t *`.
+- `items()` returns `json2cpp::items_t`, an alias of the contiguous `object_t` span.
 
-```cpp
-if (const auto entry = config.find_entry("name")) {
-  const std::string_view key = entry->first.getString();
-  const std::string_view value = entry->second->get<std::string_view>();
-}
-```
-
-Migration:
+Migration for `find_entry()`:
 
 ```cpp
-// Before
-const json2cpp::value_pair_t *entry = config.find_entry("name");
-const auto &value = entry->second;
-
-// Now
-const json2cpp::entry_view_t entry = config.find_entry("name");
-const auto &value = *entry->second;
-```
-
-`entry_view_t` does not own data. It remains valid while the source document remains
-valid; generated documents have static lifetime.
-
-Its pointer-like operations are provided for concise migration:
-
-```cpp
+// Previous proxy result
 const auto entry = config.find_entry("name");
-if (static_cast<bool>(entry)) {          // operator bool()
-  const auto *view = entry.operator->(); // Same object, not a heap pointer.
-  const auto &same = entry.operator*();
-  (void)view;
-  (void)same;
+const auto value = entry->second->get<std::string_view>();
+
+// V5 stored-pair pointer
+const json2cpp::value_pair_t *entry = config.find_entry("name");
+const auto value = entry->second.get<std::string_view>();
+```
+
+Structured binding and ranges code over `items()` remains unchanged:
+
+```cpp
+for (const auto &[key, value] : config.items()) {
+  // key and value are const json2cpp::json&
 }
 ```
+
+Generated files from earlier releases must be regenerated.
 
 ## API reference
 
-The examples below use the generated `config` document shown above.
-
-### Types and aliases
+### Types
 
 | Alias | Meaning |
 |---|---|
-| `json2cpp::json` | `basic_json<char>` by default, or `basic_json<char16_t>` in UTF-16 mode. |
+| `json2cpp::json` | `basic_json<char>` or `basic_json<char16_t>`. |
 | `json2cpp::array_t` | `std::span<const json>` used to construct arrays. |
-| `json2cpp::object_t` | `std::span<const value_pair_t>` used to construct regular objects. |
+| `json2cpp::object_t` | `std::span<const value_pair_t>` used to construct objects. |
 | `json2cpp::value_pair_t` | A stored `{json key, json value}` pair. |
-| `json2cpp::items_t` | Zero-copy object range returned by `items()`. |
-| `json2cpp::item_key_t` | Zero-copy key proxy yielded by `items()`. |
-| `json2cpp::item_view_t` | `{item_key_t first, const json &second}` yielded by `items()`. |
-| `json2cpp::entry_view_t` | Nullable zero-copy result returned by `find_entry()`. |
-| `json2cpp::key_descriptor_t` | Generated compact-key descriptor with `view()`. |
-| `json2cpp::compact_value_pair_t` / `compact_object_t` | Generated compact-key storage. |
-| `json2cpp::ref_value_pair_t` / `ref_value_object_t` | Generated referenced-value storage. |
-| `json2cpp::blob_ref_value_pair_t` / `blob_ref_object_t` | Generated packed-key storage. |
+| `json2cpp::items_t` | Contiguous object range returned by `items()`. |
+| `json2cpp::entry_view_t` | Compatibility alias for `const value_pair_t *`. |
 
-The compact, reference, blob, and perfect-hash storage types are public so generated
-code can construct them. They are implementation-facing; application code should use
-`json`, `array_t`, `object_t`, and the generated accessor.
+`dense_object_t`, `indexed_object_t`, and `indexed_object_ref_t` are generator-facing
+storage helpers. Application code should normally use `json`, `array_t`, `object_t`,
+and generated accessors.
 
-### Value type and state
+### Type and state
 
 `json::Type` contains `Null`, `Boolean`, `String`, `Integer`, `UInteger`, `Float`,
 `Array`, and `Object`.
@@ -237,8 +216,8 @@ code can construct them. They are implementation-facing; application code should
 const auto &name = config["name"];
 
 const json2cpp::json::Type type = name.type();
-const std::size_t length = name.size();       // 4 for "Melo"
-const bool no_elements = name.empty();       // false
+const std::size_t length = name.size();
+const bool no_elements = name.empty();
 
 const bool object = config.is_object();
 const bool array = config["tags"].is_array();
@@ -251,126 +230,77 @@ const bool null = json2cpp::json{}.is_null();
 | Method | Behavior |
 |---|---|
 | `type()` | Returns the exact `json::Type`. |
-| `size()` | Returns string length or array/object element count; scalar values use `0`. |
+| `size()` | Returns string length or array/object element count; other scalars use `0`. |
 | `empty()` | Equivalent to `size() == 0`. |
 | `is_object()` | Tests for `Type::Object`. |
 | `is_array()` | Tests for `Type::Array`. |
 | `is_string()` | Tests for `Type::String`. |
 | `is_boolean()` | Tests for `Type::Boolean`. |
-| `is_number()` | Tests for signed integer, unsigned integer, or floating point. |
+| `is_number()` | Tests for any numeric type. |
 | `is_null()` | Tests for `Type::Null`. |
-| `is_sorted_obj()` | Reports whether an object's keys are stored in lexical order. Only meaningful for objects. |
-| `hash()` | Returns the cached string hash. Only meaningful for strings and key values. |
-
-```cpp
-if (config.is_sorted_obj()) {
-  // Some lookups can use the generated sorted layout.
-}
-
-const std::uint32_t name_hash = config["name"].hash();
-```
+| `is_sorted_obj()` | Reports whether a regular object's keys are lexically sorted. |
+| `hash()` | Returns a string or key's cached hash. |
 
 ### Object lookup
 
 > [!TIP]
-> Pass keys directly as string literals to `at()`, `operator[]`, and `contains()` when
-> they are known at compile time. These calls are prehashed with `consteval`. Adding the
-> `sv` suffix or storing the key in a `std::string_view` selects the runtime-key overload,
-> even when the view refers to a literal; compiler folding is not a library guarantee.
+> Prefer `at("name")`, `config["name"]`, and `contains("name")` when the key is a
+> literal. These overloads guarantee compile-time hashing. `"name"sv` selects the
+> `std::string_view` overload; a compiler may fold its hash, but the API does not
+> require that optimization.
 
-```cpp
-using namespace std::string_view_literals;
+#### `at()` and `operator[]`
 
-config.contains("name");   // Guaranteed compile-time key hashing.
-config.contains("name"sv); // Runtime-key lookup.
-```
-
-#### `at()`
-
-`at()` returns a `const json &`. String literals are hashed at compile time through a
-`consteval` key conversion, independent of compiler optimization. Runtime keys use
-binary search without hashing for sorted objects; other layouts hash through a
-`std::string_view` conversion.
-
-Named character arrays that are populated at runtime should be passed as
-`std::string_view`; unlike a string literal, their contents cannot be hashed at compile
-time.
+Both return `const json &` and perform checked access. `operator[]` forwards to
+`at()`.
 
 ```cpp
 const auto &name = config.at("name");
-
-const std::string_view key = "settings";
-const auto &settings = config.at(key);
-
-constexpr json2cpp::detail::CompileTimeKey locale_key{"locale"};
-const auto &locale = settings.at(locale_key);
-```
-
-`at(index)` accesses an array element or an object value by stored order:
-
-```cpp
-const auto &first_tag = config["tags"].at(0);
-const auto &first_object_value = config.at(0);
-```
-
-Missing keys and invalid indexes throw `std::out_of_range`. Calling indexed `at()` on
-a scalar throws `std::domain_error`.
-
-#### `operator[]`
-
-`operator[]` forwards to `at()` and has the same checked behavior:
-
-```cpp
 const auto &theme = config["settings"]["theme"];
-const auto &second_tag = config["tags"][1];
+
+const std::string_view runtime_key = "settings";
+const auto &settings = config.at(runtime_key);
+
+const auto &first_tag = config["tags"].at(0);
+const auto &first_value = config.at(0); // Object values use stored order.
 ```
+
+Named mutable character arrays should be passed as `std::string_view`; their contents
+cannot be prehashed at compile time.
 
 #### `contains()`
 
-`contains()` tests object keys without throwing. Literal keys are guaranteed to use a
-compile-time hash. It returns `false` for non-object values.
+`contains()` checks object keys without throwing and returns `false` for non-objects:
 
 ```cpp
 if (config.contains("threshold")) {
   const double threshold = config["threshold"].get<double>();
 }
 
-const std::string_view dynamic_key = "missing";
-const bool found = config.contains(dynamic_key); // false
+const std::string_view missing = "missing";
+const bool found = config.contains(missing); // false
 ```
 
 #### `find_entry()`
 
-`find_entry()` returns a nullable `entry_view_t`. `first` is a zero-copy key proxy and
-`second` is a pointer to the stored value. Use `CompileTimeKey` to guarantee compile-time
-hashing, or pass a precomputed hash when repeatedly looking up a runtime key.
+`find_entry()` returns a pointer to the stored pair or `nullptr`:
 
 ```cpp
-const auto entry = config.find_entry("name");
-if (entry) {
-  const auto key = entry->first.getString();
-  const auto value = entry->second->get<std::string_view>();
-}
-
-const auto missing = config.find_entry("missing");
-if (!missing) {
-  // No entry was found.
+if (const auto *entry = config.find_entry("name")) {
+  const std::string_view key = entry->first.getString();
+  const std::string_view value = entry->second.get<std::string_view>();
 }
 ```
 
-The prehashed overload avoids hashing a dynamic key when the caller already has the
-matching hash:
+Use the prehashed overload when repeatedly searching with a runtime key:
 
 ```cpp
 const std::string_view key = "name";
 const std::uint32_t hash = json2cpp::json::calc_hash(key);
-const auto entry = config.find_entry(key, hash);
-
-constexpr json2cpp::detail::CompileTimeKey name_key{"name"};
-const auto literal_entry = config.find_entry(name_key);
+const auto *entry = config.find_entry(key, hash);
 ```
 
-The supplied hash must have been computed from the same key.
+The supplied hash must have been calculated from the same key.
 
 #### `calc_hash()` and `null_value()`
 
@@ -379,96 +309,63 @@ const auto hash = json2cpp::json::calc_hash("name");
 const json2cpp::json &null = json2cpp::json::null_value();
 ```
 
-`calc_hash()` uses the same hash as generated keys. `null_value()` returns a reference
-to a shared immutable null value.
+`calc_hash()` uses the same hash as generated keys. `null_value()` returns a shared,
+immutable null value.
 
 ### Find a value index
 
-`index(value)` searches array elements or object values in stored order. It does not
-search object keys. The string overload uses cached hashes before comparing text.
+`index(value)` searches array elements or object values in stored order; it does not
+search object keys. It returns `json::npos` when no value compares equal.
 
 ```cpp
-const auto tag_index = config["tags"].index("translation"); // 1
-const auto theme_index = config["settings"].index("dark"); // 0
+const auto tag_index = config["tags"].index("translation");
+const auto theme_index = config["settings"].index("dark");
 
 const auto &settings = config["settings"];
 const auto locale_index = settings.index(settings["locale"]);
 
-if (tag_index == json2cpp::json::npos) {
-  // No equal value was found.
-}
-```
-
-The template overload supports booleans, numbers, strings, and `json` values:
-
-```cpp
 const auto retry_index = config.index(3);
 const auto enabled_index = config.index(true);
 ```
 
+String searches use cached value fingerprints on indexed objects. A `json` value that
+already refers to an element can use pointer identity before equality.
+
 ### Object iteration with `items()`
 
-`items()` returns an allocation-free `items_t` range over any generated object layout.
-Each item has a key proxy named `first` and a value reference named `second`.
+`items()` returns an allocation-free, contiguous random-access span:
 
 ```cpp
-for (const auto &[key, value] : config.items()) {
-  const std::string_view text = key.getString();
-  const std::uint32_t hash = key.hash();
-  (void)text;
-  (void)hash;
+const auto items = config.items();
+
+for (const auto &[key, value] : items) {
+  const std::string_view key_text = key.getString();
+  const std::uint32_t key_hash = key.hash();
+  (void)key_text;
+  (void)key_hash;
   (void)value;
 }
 ```
 
-`item_key_t` converts to `std::string_view` or `json` and compares directly with
-string-like values:
-
-```cpp
-for (const auto &[key, value] : config.items()) {
-  if (key == "name") {
-    const std::string_view key_view = key;
-    const json2cpp::json key_json = key;
-    (void)key_view;
-    (void)key_json;
-    (void)value;
-  }
-}
-```
-
-Store the range before using a ranges algorithm whose result must be retained:
+It works directly with ranges algorithms:
 
 ```cpp
 #include <algorithm>
 #include <ranges>
 
 const auto items = config.items();
-const auto it = std::ranges::find_if(items, [](const auto &item) {
+const auto found = std::ranges::find_if(items, [](const auto &item) {
   return item.second == "Melo";
 });
-
-if (it != items.end()) {
-  const auto key = (*it).first.getString();
-}
 ```
 
-`items_t::size()`, `empty()`, `begin()`, and `end()` provide the normal range
-operations. Its iterator supports dereference, pre/post-increment, and equality as a
-single-pass input iterator:
-
-```cpp
-const auto items = config.items();
-const std::size_t count = items.size();
-const bool empty = items.empty();
-const auto first = items.begin();
-const auto last = items.end();
-```
-
-Calling `items()` on a non-object throws `std::domain_error`.
+`items_t` provides `size()`, `empty()`, `front()`, `back()`, indexing, `begin()`, and
+`end()` through `std::span`. Calling `items()` on a non-object throws
+`std::domain_error`.
 
 ### Array iteration and spans
 
-Arrays expose `begin()` and `end()` directly:
+Arrays expose pointer iterators and convert to `std::span<const json>`:
 
 ```cpp
 const auto &tags = config["tags"];
@@ -480,22 +377,13 @@ for (const json2cpp::json &tag : tags) {
 
 const json2cpp::json *first = tags.begin();
 const json2cpp::json *last = tags.end();
+const std::span<const json2cpp::json> span = tags;
 ```
 
-They also convert to `std::span<const json>`:
+For non-arrays, `begin()` and `end()` return `nullptr`, and span conversion returns an
+empty span.
 
-```cpp
-#include <span>
-
-const std::span<const json2cpp::json> tag_span = config["tags"];
-```
-
-For non-array values, `begin()` and `end()` return `nullptr`, and span conversion
-returns an empty span.
-
-### Read values
-
-#### `get<T>()`
+### Read scalar values
 
 `get<T>()` supports `std::string_view`, `bool`, integral types, and floating-point
 types:
@@ -507,11 +395,10 @@ const int retries = config["retries"].get<int>();
 const float threshold = config["threshold"].get<float>();
 ```
 
-Numeric conversions use normal C++ casts. They do not perform range or precision
-validation. Unsupported `T` values fail at compile time. A JSON type mismatch throws
-`std::domain_error`.
+Numeric conversions use normal C++ casts and do not add range or precision checks.
+Unsupported types fail compilation.
 
-#### `getString()`, `data()`, and `getNumber()`
+Low-level accessors are also available:
 
 ```cpp
 const auto &name_value = config["name"];
@@ -520,37 +407,30 @@ const char *characters = name_value.data();
 const double retries = config["retries"].getNumber();
 ```
 
-`getString()` and `data()` are unchecked low-level string accessors. Check
-`is_string()` first or use `get<std::string_view>()` when the input type is uncertain.
-`data()` is not guaranteed to be null-terminated. `getNumber()` accepts any numeric
-JSON type and throws `std::domain_error` otherwise.
+`getString()` and `data()` are unchecked; `data()` is not guaranteed to be
+null-terminated. `getNumber()` accepts any numeric JSON type.
 
 ### Equality
 
-JSON values compare recursively:
+JSON values compare recursively and allocation-free:
 
 ```cpp
 const bool same_document = config == config;
 const bool same_settings = config["settings"] == config["settings"];
 const bool same_tags = config["tags"] == config["tags"];
-```
 
-Values also compare directly with supported C++ scalars and strings:
-
-```cpp
 const bool name_matches = config["name"] == "Melo";
 const bool enabled_matches = config["enabled"] == true;
 const bool retries_match = config["retries"] == 3;
-const bool threshold_matches = config["threshold"] == 0.75;
 ```
 
-Object equality is order-sensitive because generated objects preserve JSON property
-order. Floating-point equality is exact. Arrays compare elements recursively, so
-arrays containing objects use the same object equality behavior.
+Object equality is order-sensitive because source property order is preserved.
+Floating-point equality is exact. Dense objects compare values without rechecking
+their implied numeric keys.
 
 ### Construct values manually
 
-`json` is non-owning. Array and object backing storage must outlive the `json` value;
+`json` is non-owning. Array and object backing storage must outlive the JSON value;
 `constexpr` or static storage is the normal choice.
 
 ```cpp
@@ -575,23 +455,10 @@ constexpr json signed_integer{-1};
 constexpr json unsigned_integer{1u};
 constexpr json floating_point{0.75};
 constexpr json string_literal{"Melo"};
-constexpr json string_view{std::string_view{"Melo"}};
 ```
 
-Constructing a regular object with a non-string key throws `std::domain_error` or
-causes constant evaluation to fail.
-
-Generated code also constructs `compact_object_t`, `ref_value_object_t`, and
-`blob_ref_object_t` values. These constructors select an internal storage layout while
-preserving the same `json` methods. They are not intended for application code.
-
-`key_descriptor_t` is the only generated storage helper with an application-visible
-method:
-
-```cpp
-constexpr json2cpp::key_descriptor_t key{"name"};
-static_assert(key.view() == "name");
-```
+Constructing an object with a non-string key throws `std::domain_error` or fails
+constant evaluation.
 
 ## Error behavior
 
@@ -605,33 +472,26 @@ static_assert(key.view() == "name");
 | `getNumber()` on a non-number | `std::domain_error` |
 | Object construction with a non-string key | `std::domain_error` |
 
-During constant evaluation, invalid operations fail compilation rather than producing
-a runtime exception.
+During constant evaluation, invalid operations fail compilation.
 
 ## UTF-16
 
-Define `JSON2CPP_USE_UTF16` consistently before including json2cpp or any generated
-header in every translation unit:
+Define `JSON2CPP_USE_UTF16` consistently before including generated headers:
 
 ```cpp
 #define JSON2CPP_USE_UTF16
 #include "generated/config.hpp"
 
-#include <string_view>
-
 const auto &config = compiled_json::config::get();
 const std::u16string_view name = config.at(u"name").get<std::u16string_view>();
 ```
 
-This changes `json2cpp::basicType` to `char16_t` and the convenience aliases to their
-UTF-16 forms. Do not mix UTF-8 and UTF-16 modes across translation units.
+Do not mix UTF-8 and UTF-16 modes across translation units.
 
 ## Constexpr use
 
-The generated implementation owns a `constexpr` document internally. Public generated
-accessors use a `.cpp` firewall and are intended for runtime access without runtime
-loading. Code that directly includes generated implementation data can use the same API
-during constant evaluation:
+The generated `.cpp` owns a `constexpr` document internally. Manually constructed
+documents can use the complete API in constant evaluation:
 
 ```cpp
 constexpr json2cpp::value_pair_t values[] = {
@@ -645,6 +505,23 @@ static_assert(document["enabled"].get<bool>());
 static_assert(document["retries"] == 3);
 ```
 
+## V5 performance
+
+The project benchmark compares every public read API across `allLabels`,
+`allLanguages`, `labels`, `shadows`, and `voices`, using seven alternating runs per
+case. Compared with the previous layout engine, median improvements include:
+
+- `at(runtime)`: 39.6%
+- `contains()` hits/misses: 35.6% / 17.7%
+- `find_entry()` hits/misses: 25.8% / 9.1%
+- Full `items()` traversal: 2.4%
+- `index(string)` hits/misses: 14.6% / 6.4%
+- Equal-object comparison: 16.0%
+
+The representative stripped executable is 2.75% smaller, generated source across the
+five documents is 30.63% smaller, and `json2cpp.hpp` is about 65.3% smaller by bytes.
+Exact results depend on document shape, key position, compiler, and target CPU.
+
 ## License
 
-MIT. See [LICENSE](LICENSE)
+MIT. See [LICENSE](LICENSE).
