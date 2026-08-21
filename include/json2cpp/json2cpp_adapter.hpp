@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2026 Jason Turner, Regis Duflaut-Averty
+Copyright (c) 2022 Jason Turner
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -184,7 +184,7 @@ public:
   [[nodiscard]] const_iterator find(std::string_view property_name) const noexcept
   {
     const auto entry = m_value.find_entry(property_name);
-    return { &m_value, entry ? m_value.index(*entry->second) : m_value.size() };
+    return { &m_value, entry ? m_value.index(entry->second) : m_value.size() };
   }
 
   [[nodiscard]] std::size_t size() const noexcept { return m_value.size(); }
@@ -330,8 +330,8 @@ inline DerefProxy<json2cppJsonArrayValueIterator::value_type> json2cppJsonArrayV
 
 inline json2cppJsonObjectMemberIterator::value_type json2cppJsonObjectMemberIterator::operator*() const
 {
-  const json2cpp::item_key_t key{ m_owner, m_index };
-  return { std::string{ key.getString() }, json2cppJsonAdapter{ m_owner->at(m_index) } };
+  const auto &item = m_owner->items()[m_index];
+  return { std::string{ item.first.getString() }, json2cppJsonAdapter{ item.second } };
 }
 
 inline DerefProxy<json2cppJsonObjectMemberIterator::value_type> json2cppJsonObjectMemberIterator::operator->() const
