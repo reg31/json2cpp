@@ -10,8 +10,10 @@ macro(
 
   if(MSVC)
     set(NEW_COMPILE_OPTIONS
-        "${NEW_COMPILE_OPTIONS} /sdl /DYNAMICBASE /guard:cf /NXCOMPAT")
-    message(STATUS "*** MSVC flags: /sdl /DYNAIMCBASE /guard:cf /NXCOMPAT")
+        "${NEW_COMPILE_OPTIONS} /sdl /guard:cf")
+    set(NEW_LINK_OPTIONS
+        "${NEW_LINK_OPTIONS} /DYNAMICBASE /guard:cf /NXCOMPAT")
+    message(STATUS "*** MSVC flags: /sdl /guard:cf /DYNAMICBASE /NXCOMPAT")
 
   elseif(CMAKE_CXX_COMPILER_ID MATCHES ".*Clang|GNU")
     set(NEW_CXX_DEFINITIONS "${NEW_CXX_DEFINITIONS} -D_GLIBCXX_ASSERTIONS")
