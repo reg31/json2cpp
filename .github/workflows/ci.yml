@@ -15,7 +15,7 @@ jobs:
           sudo apt-get install -y clang ninja-build
 
       - name: Configure CMake
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_CXX_COMPILER:FILEPATH=clang++ -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING=-s
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_CXX_COMPILER:FILEPATH=clang++ -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE:BOOL=ON -DCMAKE_CXX_FLAGS:STRING="-ffunction-sections -fdata-sections" -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="-Wl,--gc-sections -s"
 
       - name: Build
         run: cmake --build build --config Release
@@ -48,7 +48,7 @@ jobs:
           xcode-version: latest-stable
 
       - name: Configure CMake
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="-Wl,-S -Wl,-x"
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE:BOOL=ON -DCMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="-Wl,-dead_strip -Wl,-S -Wl,-x"
 
       - name: Build
         run: cmake --build build --config Release

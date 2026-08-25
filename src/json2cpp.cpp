@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2025 Jason Turner, Regis Duflaut-Averty
+Copyright (c) 2026 Jason Turner, Regis Duflaut-Averty
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -422,7 +422,7 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
         pairs.emplace_back(std::format("{},", var_name));
       } else {
         const auto key_repr = string_tracker.get_string_representation(itr.key());
-        pairs.emplace_back(std::format("value_pair_t{{{}, {}}},",
+        pairs.emplace_back(std::format("{{{}, {}}},",
           key_repr,
           compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker)));
       }
@@ -551,7 +551,6 @@ namespace compiled_json::{}::impl {{
   using array_t = json2cpp::basic_array_t<basicType>;
   using object_t = json2cpp::basic_object_t<basicType>;
   using dense_object_t = json2cpp::basic_dense_object_t<basicType>;
-  using indexed_object_t = json2cpp::basic_indexed_object_t<basicType>;
   using indexed_object_ref_t = json2cpp::basic_indexed_object_ref_t<basicType>;
   using value_pair_t = json2cpp::basic_value_pair_t<basicType>;
   )",
