@@ -515,7 +515,7 @@ static_assert(document["enabled"].get<bool>());
 static_assert(document["retries"] == 3);
 ```
 
-## V5 performance
+## Performance
 
 The project benchmark compares every public read API across `allLabels`,
 `allLanguages`, `labels`, `shadows`, and `voices`, using seven alternating runs per
