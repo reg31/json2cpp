@@ -534,4 +534,4 @@ Exact results depend on document shape, key position, compiler, and target CPU.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT LICENSE](LICENSE)
