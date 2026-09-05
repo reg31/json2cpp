@@ -340,7 +340,7 @@ private:
 public:
   static constexpr size_t npos = static_cast<size_t>(-1);
   static constexpr uint32_t calc_hash(std::basic_string_view<CharType> sv) noexcept { return detail::hash_key(sv); }
-  static const basic_json &null_value() noexcept
+  static constexpr const basic_json &null_value() noexcept
   {
     static constexpr basic_json value{};
     return value;
@@ -376,14 +376,16 @@ public:
     constexpr auto object_tag = static_cast<uint32_t>(Type::Object);
     constexpr auto indexed_tag = object_tag | indexed_object_mask;
     const auto kind = metadata_ & object_mask;
-    if (length_ != 0u && kind == indexed_tag) {
+    if (kind == indexed_tag) {
       const auto entries = data_storage_.object_value;
-      const auto &found = entries[0].first;
-      if (found.size() == key.size() && found.getString() == key) return entries;
+      if (length_ != 0u) {
+        const auto &found = entries[0].first;
+        if (found.size() == key.size() && found.getString() == key) return entries;
+      }
+      return find_indexed_entry(key, calc_hash(key));
     }
-    const auto target_hash = calc_hash(key);
-    if (kind == object_tag) return find_regular_entry(key, target_hash);
-    return find_entry(key, target_hash);
+    if (kind == object_tag) return find_regular_entry(key, is_sorted_obj() ? 0u : calc_hash(key));
+    return find_entry(key, 0u);
   }
 
   template<size_t N>
@@ -574,9 +576,10 @@ public:
 
   template<typename Key>
   [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr bool contains(const Key &key) const noexcept
-    requires(detail::string_like<Key, CharType> && !std::convertible_to<Key, std::basic_string_view<CharType>>)
+    requires(detail::string_like<Key, CharType> && !std::is_array_v<std::remove_reference_t<Key>>
+             && !std::same_as<std::remove_cvref_t<Key>, std::basic_string_view<CharType>>)
   {
-    return find_entry(key) != nullptr;
+    return find_entry(detail::make_string_view<CharType>(key)) != nullptr;
   }
 
   [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr bool contains(detail::CompileTimeKey<CharType> key) const noexcept
@@ -634,22 +637,32 @@ public:
   [[nodiscard]] constexpr size_t index(const basic_json &value) const noexcept
   {
     if (is_array()) {
-      if (&value >= data_storage_.array_value && &value < data_storage_.array_value + length_)
-        return static_cast<size_t>(&value - data_storage_.array_value);
+      if consteval {
+        for (size_t i = 0; i < length_; ++i)
+          if (&value == &data_storage_.array_value[i]) return i;
+      } else {
+        if (&value >= data_storage_.array_value && &value < data_storage_.array_value + length_)
+          return static_cast<size_t>(&value - data_storage_.array_value);
+      }
       for (size_t i = 0; i < length_; ++i)
         if (data_storage_.array_value[i] == value) return i;
       return npos;
     }
     if (is_object()) {
       const auto entries = object_entries();
-      if (length_ != 0u) {
-        const auto address = reinterpret_cast<std::uintptr_t>(&value);
-        const auto first = reinterpret_cast<std::uintptr_t>(&entries[0].second);
-        if (address >= first) {
-          const auto distance = address - first;
-          if (distance % sizeof(basic_value_pair_t<CharType>) == 0u
-              && distance / sizeof(basic_value_pair_t<CharType>) < length_)
-            return distance / sizeof(basic_value_pair_t<CharType>);
+      if consteval {
+        for (size_t i = 0; i < length_; ++i)
+          if (&value == &entries[i].second) return i;
+      } else {
+        if (length_ != 0u) {
+          const auto address = reinterpret_cast<std::uintptr_t>(&value);
+          const auto first = reinterpret_cast<std::uintptr_t>(&entries[0].second);
+          if (address >= first) {
+            const auto distance = address - first;
+            if (distance % sizeof(basic_value_pair_t<CharType>) == 0u
+                && distance / sizeof(basic_value_pair_t<CharType>) < length_)
+              return distance / sizeof(basic_value_pair_t<CharType>);
+          }
         }
       }
       for (size_t i = 0; i < length_; ++i)
@@ -745,7 +758,7 @@ public:
 
 namespace detail {
   template<typename CharType, size_t N>
-  consteval auto make_key_index(const std::array<basic_value_pair_t<CharType>, N> &entries)
+  consteval auto make_key_index(const std::array<basic_value_pair_t<CharType>, N> &entries, size_t first = 0)
   {
     static_assert(N <= 0xFFu);
     constexpr auto capacity = [] {
@@ -754,7 +767,8 @@ namespace detail {
       return value;
     }();
     std::array<uint8_t, capacity> result{};
-    for (size_t i = 0; i < N; ++i) {
+    // Generated objects can omit keys already handled by the prefix scan.
+    for (size_t i = first; i < N; ++i) {
       auto slot = entries[i].first.hash() & (capacity - 1u);
       while (result[slot] != 0u) slot = (slot + 1u) & (capacity - 1u);
       result[slot] = static_cast<uint8_t>(i + 1u);

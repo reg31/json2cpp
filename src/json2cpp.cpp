@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2026 Jason Turner, Regis Duflaut-Averty
+Copyright (c) 2025 Jason Turner, Regis Duflaut-Averty
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -434,7 +434,7 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
     if (is_dense_object(value)) return std::format("dense_object_t{{object_t{{{}}}}}", obj_name);
     if (is_indexed_object(value)) {
       lines.emplace_back(
-        std::format("constexpr auto {}_key_index = json2cpp::detail::make_key_index({});", obj_name, obj_name));
+        std::format("constexpr auto {}_key_index = json2cpp::detail::make_key_index({}, 8);", obj_name, obj_name));
       lines.emplace_back(
         std::format("constexpr auto {}_value_hashes = json2cpp::detail::make_value_hashes({});", obj_name, obj_name));
       lines.emplace_back(std::format(

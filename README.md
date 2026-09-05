@@ -279,6 +279,10 @@ if (config.contains("threshold")) {
 
 const std::string_view missing = "missing";
 const bool found = config.contains(missing); // false
+
+const std::string key = "threshold";
+const bool owned_key_found = config.contains(key);
+const bool pointer_key_found = config.contains(key.c_str());
 ```
 
 #### `find_entry()`
@@ -301,6 +305,10 @@ const auto *entry = config.find_entry(key, hash);
 ```
 
 The supplied hash must have been calculated from the same key.
+
+Generated lookup tables omit keys already covered by the fast prefix scan.
+Regenerate your JSON sources with the updated generator and header to use this
+optimization; existing generated sources remain compatible with the new header.
 
 #### `calc_hash()` and `null_value()`
 
@@ -328,8 +336,10 @@ const auto retry_index = config.index(3);
 const auto enabled_index = config.index(true);
 ```
 
-String searches use cached value fingerprints on indexed objects. A `json` value that
-already refers to an element can use pointer identity before equality.
+String searches use cached value fingerprints on indexed objects. A `json` reference
+to a stored element returns that element's own index, even if an earlier value compares
+equal. A detached value returns the first equal index. This behavior is the same at
+runtime and during constant evaluation.
 
 ### Object iteration with `items()`
 
@@ -505,7 +515,7 @@ static_assert(document["enabled"].get<bool>());
 static_assert(document["retries"] == 3);
 ```
 
-## V5 performance
+## Performance
 
 The project benchmark compares every public read API across `allLabels`,
 `allLanguages`, `labels`, `shadows`, and `voices`, using seven alternating runs per
@@ -524,4 +534,4 @@ Exact results depend on document shape, key position, compiler, and target CPU.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT LICENSE](LICENSE)
