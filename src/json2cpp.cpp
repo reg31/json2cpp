@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2026 Jason Turner, Regis Duflaut-Averty
+Copyright (c) 2025 Jason Turner, Regis Duflaut-Averty
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -50,98 +50,18 @@ namespace {
 
 std::string sanitize_identifier(std::string_view name)
 {
-  static constexpr std::string_view keywords[] = { "alignas",
-    "alignof",
-    "and",
-    "and_eq",
-    "asm",
-    "auto",
-    "bitand",
-    "bitor",
-    "bool",
-    "break",
-    "case",
-    "catch",
-    "char",
-    "char8_t",
-    "char16_t",
-    "char32_t",
-    "class",
-    "compl",
-    "concept",
-    "const",
-    "consteval",
-    "constexpr",
-    "constinit",
-    "const_cast",
-    "continue",
-    "co_await",
-    "co_return",
-    "co_yield",
-    "decltype",
-    "default",
-    "delete",
-    "do",
-    "double",
-    "dynamic_cast",
-    "else",
-    "enum",
-    "explicit",
-    "export",
-    "extern",
-    "false",
-    "float",
-    "for",
-    "friend",
-    "goto",
-    "if",
-    "inline",
-    "int",
-    "long",
-    "mutable",
-    "namespace",
-    "new",
-    "noexcept",
-    "not",
-    "not_eq",
-    "nullptr",
-    "operator",
-    "or",
-    "or_eq",
-    "private",
-    "protected",
-    "public",
-    "register",
-    "reinterpret_cast",
-    "requires",
-    "return",
-    "short",
-    "signed",
-    "sizeof",
-    "static",
-    "static_assert",
-    "static_cast",
-    "struct",
-    "switch",
-    "template",
-    "this",
-    "thread_local",
-    "throw",
-    "true",
-    "try",
-    "typedef",
-    "typeid",
-    "typename",
-    "union",
-    "unsigned",
-    "using",
-    "virtual",
-    "void",
-    "volatile",
-    "wchar_t",
-    "while",
-    "xor",
-    "xor_eq" };
+  static constexpr std::string_view keywords[] = {
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break",
+    "case", "catch", "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const",
+    "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await", "co_return", "co_yield",
+    "decltype", "default", "delete", "do", "double", "dynamic_cast", "else", "enum", "explicit", "export",
+    "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable",
+    "namespace", "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private",
+    "protected", "public", "register", "reinterpret_cast", "requires", "return", "short", "signed", "sizeof",
+    "static", "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local", "throw",
+    "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void",
+    "volatile", "wchar_t", "while", "xor", "xor_eq"
+  };
   std::string result;
   result.reserve(name.size());
   for (char c : name) {
@@ -164,27 +84,13 @@ std::string escape_string(const std::string &str)
   result.reserve(str.size());
   for (const char character : str) {
     switch (character) {
-    case '"':
-      result += "\\\"";
-      break;
-    case '\\':
-      result += "\\\\";
-      break;
-    case '\b':
-      result += "\\b";
-      break;
-    case '\f':
-      result += "\\f";
-      break;
-    case '\n':
-      result += "\\n";
-      break;
-    case '\r':
-      result += "\\r";
-      break;
-    case '\t':
-      result += "\\t";
-      break;
+    case '"': result += "\\\""; break;
+    case '\\': result += "\\\\"; break;
+    case '\b': result += "\\b"; break;
+    case '\f': result += "\\f"; break;
+    case '\n': result += "\\n"; break;
+    case '\r': result += "\\r"; break;
+    case '\t': result += "\\t"; break;
     default: {
       const auto byte = static_cast<unsigned char>(character);
       if (byte < 0x20u || byte == 0x7Fu) {
@@ -202,7 +108,10 @@ std::string escape_string(const std::string &str)
   return result;
 }
 
-std::string format_json_string(const std::string &str) { return std::format("RAW_PREFIX(\"{}\")", escape_string(str)); }
+std::string format_json_string(const std::string &str)
+{
+  return std::format("RAW_PREFIX(\"{}\")", escape_string(str));
+}
 
 inline void hash_combine(std::size_t &seed, std::size_t value)
 {
@@ -380,9 +289,7 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
   DuplicateTracker &pair_tracker);
 
 bool is_indexed_object(const nlohmann::ordered_json &value)
-{
-  return value.is_object() && value.size() >= 64u && value.size() <= 0xFFu;
-}
+{ return value.is_object() && value.size() >= 64u && value.size() <= 0xFFu; }
 
 bool is_dense_object(const nlohmann::ordered_json &value)
 {
@@ -431,18 +338,16 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
     lines.emplace_back(std::format("constexpr std::array<value_pair_t, {}> {} = {{{{", pairs.size(), obj_name));
     for (const auto &pair : pairs) { lines.emplace_back(std::format("  {}", pair)); }
     lines.emplace_back("}};");
-    if (is_dense_object(value)) return std::format("dense_object_t{{object_t{{{}}}}}", obj_name);
+    if (is_dense_object(value))
+      return std::format("dense_object_t{{object_t{{{}}}}}", obj_name);
     if (is_indexed_object(value)) {
-      lines.emplace_back(
-        std::format("constexpr auto {}_key_index = json2cpp::detail::make_key_index({});", obj_name, obj_name));
-      lines.emplace_back(
-        std::format("constexpr auto {}_value_hashes = json2cpp::detail::make_value_hashes({});", obj_name, obj_name));
+      lines.emplace_back(std::format(
+        "constexpr auto {}_key_index = json2cpp::detail::make_key_index({}, 8);", obj_name, obj_name));
+      lines.emplace_back(std::format(
+        "constexpr auto {}_value_hashes = json2cpp::detail::make_value_hashes({});", obj_name, obj_name));
       lines.emplace_back(std::format(
         "constexpr auto {}_indexed = json2cpp::detail::make_indexed_entries({}, {}_key_index, {}_value_hashes);",
-        obj_name,
-        obj_name,
-        obj_name,
-        obj_name));
+        obj_name, obj_name, obj_name, obj_name));
       return std::format("indexed_object_ref_t{{{}_indexed.data() + 1u, {}}}", obj_name, value.size());
     }
     return std::format("object_t{{{}}}", obj_name);
@@ -571,10 +476,11 @@ namespace compiled_json::{}::impl {{
     last_obj_name));
 
   std::cout << obj_count << " JSON nodes emitted.\n";
-  const auto report_reuse = [](std::string_view kind, std::string_view threshold, const auto &tracker, auto minimum) {
+  const auto report_reuse = [](std::string_view kind, std::string_view threshold,
+                               const auto &tracker, auto minimum) {
     if (const auto reused = tracker.get_reused_count(); reused != 0u)
-      std::cout << reused << " duplicate " << kind << " reused (" << threshold << ": " << minimum << "), saving "
-                << tracker.get_total_references_saved() << " references.\n";
+      std::cout << reused << " duplicate " << kind << " reused (" << threshold << ": " << minimum
+                << "), saving " << tracker.get_total_references_saved() << " references.\n";
   };
   report_reuse("strings", "min length", string_tracker, string_tracker.min_string_length);
   report_reuse("arrays", "min size", array_tracker, array_tracker.min_size);
@@ -585,7 +491,7 @@ namespace compiled_json::{}::impl {{
 }
 
 
-}// namespace
+}
 
 compile_results compile(const std::string_view document_name, const nlohmann::json &json)
 {
@@ -614,7 +520,8 @@ void write_compilation(std::string_view document_name,
   const auto cpp_name = append_extension(base_output, ".cpp");
   const auto impl_name = append_extension(base_output, "_impl.hpp");
 
-  if (const auto parent = base_output.parent_path(); !parent.empty()) std::filesystem::create_directories(parent);
+  if (const auto parent = base_output.parent_path(); !parent.empty())
+    std::filesystem::create_directories(parent);
 
   const auto write_lines = [](const std::filesystem::path &path, const std::vector<std::string> &lines) {
     std::ofstream output(path);
