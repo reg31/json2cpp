@@ -26,6 +26,7 @@ SOFTWARE.
 #define CONSTEXPR_JSON_HPP_INCLUDED
 
 #include <array>
+#include <cassert>
 #include <concepts>
 #include <cstdint>
 #include <cstring>
@@ -50,18 +51,18 @@ namespace json2cpp {
 template<typename CharType> struct basic_json;
 
 namespace detail {
-  template<typename Exception> [[noreturn]] constexpr void throw_exception(const char *msg)
+  template<typename Exception>
+  [[noreturn]] constexpr void throw_exception(const char *msg)
   {
-    if consteval {
-      throw msg;
-    } else {
-      throw Exception(msg);
-    }
+    if consteval { throw msg; }
+    else { throw Exception(msg); }
   }
 
-  [[noreturn]] constexpr void throw_out_of_range(const char *msg) { throw_exception<std::out_of_range>(msg); }
+  [[noreturn]] constexpr void throw_out_of_range(const char *msg)
+  { throw_exception<std::out_of_range>(msg); }
 
-  [[noreturn]] constexpr void throw_domain_error(const char *msg) { throw_exception<std::domain_error>(msg); }
+  [[noreturn]] constexpr void throw_domain_error(const char *msg)
+  { throw_exception<std::domain_error>(msg); }
 
   template<typename CharType> constexpr uint32_t hash_key(std::basic_string_view<CharType> str) noexcept
   {
@@ -79,11 +80,13 @@ namespace detail {
   }
 
   template<typename T, typename CharType>
-  concept string_like = !std::same_as<std::remove_cvref_t<T>, basic_json<CharType>>
-                        && (std::convertible_to<T, std::basic_string_view<CharType>> || requires(const T &value) {
-                             { value.data() } -> std::convertible_to<const CharType *>;
-                             { value.size() } -> std::convertible_to<size_t>;
-                           });
+  concept string_like =
+    !std::same_as<std::remove_cvref_t<T>, basic_json<CharType>>
+    && (std::convertible_to<T, std::basic_string_view<CharType>>
+        || requires(const T &value) {
+          { value.data() } -> std::convertible_to<const CharType *>;
+          { value.size() } -> std::convertible_to<size_t>;
+        });
 
   template<typename CharType, typename T>
   JSON2CPP_FORCE_INLINE constexpr std::basic_string_view<CharType> make_string_view(const T &value) noexcept
@@ -94,16 +97,29 @@ namespace detail {
       return { value.data(), static_cast<size_t>(value.size()) };
   }
 
+  inline constexpr size_t indexed_prefix_scan_keys = 8;
+
+  template<std::integral T>
+  [[nodiscard]] constexpr bool float_fits(double v) noexcept
+  {
+    constexpr auto bits = static_cast<unsigned>(sizeof(T) * 8u);
+    if constexpr (std::is_signed_v<T>) {
+      constexpr double magnitude = static_cast<double>(uint64_t{ 1 } << (bits - 1u));
+      return v >= -magnitude && v < magnitude;
+    } else {
+      constexpr double magnitude =
+        bits == 64u ? 18446744073709551616.0 : static_cast<double>(uint64_t{ 1 } << bits);
+      return v >= 0.0 && v < magnitude;
+    }
+  }
+
   struct indexed_key_header
   {
     const uint8_t *data;
     uint16_t mask;
     uint32_t prefix;
   };
-  struct indexed_value_header
-  {
-    const uint8_t *data;
-  };
+  struct indexed_value_header { const uint8_t *data; };
 
   template<typename CharType> struct CompileTimeKey
   {
@@ -111,12 +127,11 @@ namespace detail {
     uint32_t hash;
 
     template<size_t N>
-    consteval CompileTimeKey(const CharType (&str)[N]) noexcept : value(str, N - 1), hash(hash_key(value))
-    {}
+    consteval CompileTimeKey(const CharType (&str)[N]) noexcept : value(str, N - 1), hash(hash_key(value)) {}
 
     constexpr operator std::basic_string_view<CharType>() const noexcept { return value; }
   };
-}// namespace detail
+}
 
 template<typename F, typename S> struct pair
 {
@@ -125,11 +140,9 @@ template<typename F, typename S> struct pair
 };
 template<typename CharType> using basic_value_pair_t = pair<basic_json<CharType>, basic_json<CharType>>;
 template<typename CharType> using basic_object_t = std::span<const basic_value_pair_t<CharType>>;
-template<typename CharType> struct basic_dense_object_t
-{
-  basic_object_t<CharType> value;
-};
-template<typename CharType> struct basic_indexed_object_ref_t
+template<typename CharType> struct basic_dense_object_t { basic_object_t<CharType> value; };
+template<typename CharType>
+struct basic_indexed_object_ref_t
 {
   const basic_value_pair_t<CharType> *entries;
   uint16_t size;
@@ -166,25 +179,20 @@ private:
 
   constexpr void set_metadata(Type t, size_t len, bool sorted, uint32_t hash_val) noexcept
   {
+    assert(!std::cmp_greater(len, std::numeric_limits<uint32_t>::max()));
     length_ = static_cast<uint32_t>(len);
     metadata_ = (static_cast<uint32_t>(t) & 0b111) | ((static_cast<uint32_t>(sorted) & 0b1) << 3)
                 | ((hash_val & 0x0FFFFFFF) << 4);
   }
 
   [[nodiscard]] constexpr bool is_dense_object() const noexcept
-  {
-    return is_object() && (metadata_ & dense_object_mask) != 0u;
-  }
+  { return is_object() && (metadata_ & dense_object_mask) != 0u; }
 
   [[nodiscard]] constexpr bool is_indexed_object() const noexcept
-  {
-    return is_object() && (metadata_ & indexed_object_mask) != 0u;
-  }
+  { return is_object() && (metadata_ & indexed_object_mask) != 0u; }
 
   [[nodiscard]] constexpr const basic_value_pair_t<CharType> *object_entries() const noexcept
-  {
-    return data_storage_.object_value;
-  }
+  { return data_storage_.object_value; }
 
   [[nodiscard]] constexpr size_t dense_index(std::basic_string_view<CharType> key) const noexcept
   {
@@ -215,7 +223,7 @@ private:
     const auto t = type();
     return t == Type::UInteger ? data_storage_.uint_value == other
                                : (t == Type::Integer && data_storage_.int_value >= 0
-                                   && static_cast<uint64_t>(data_storage_.int_value) == other);
+                                  && static_cast<uint64_t>(data_storage_.int_value) == other);
   }
 
   constexpr bool eq_float(double other) const noexcept
@@ -236,7 +244,7 @@ private:
   {
     if (lhs.length_ != rhs.length_ || lhs.metadata_ != rhs.metadata_) return false;
     return lhs.length_ <= capacity ? lhs.data_storage_.short_data == rhs.data_storage_.short_data
-                                   : lhs.getString() == rhs.getString();
+                                  : lhs.getString() == rhs.getString();
   }
 
   constexpr bool eq_string(std::basic_string_view<CharType> other) const noexcept
@@ -287,18 +295,16 @@ private:
     return false;
   }
 
-  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *
-    find_regular_entry(std::basic_string_view<CharType> key, uint32_t target_hash) const noexcept
+  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *find_regular_entry(
+    std::basic_string_view<CharType> key, uint32_t target_hash) const noexcept
   {
     const auto entries = data_storage_.object_value;
     if (is_sorted_obj()) {
       size_t left = 0, right = length_;
       while (left < right) {
         const auto middle = left + (right - left) / 2u;
-        if (entries[middle].first.getString() < key)
-          left = middle + 1u;
-        else
-          right = middle;
+        if (entries[middle].first.getString() < key) left = middle + 1u;
+        else right = middle;
       }
       if (left < length_) {
         const auto &found = entries[left].first;
@@ -308,20 +314,22 @@ private:
     }
     for (size_t i = 0; i < length_; ++i) {
       const auto &found = entries[i].first;
-      if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key) return entries + i;
+      if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key)
+        return entries + i;
     }
     return nullptr;
   }
 
-  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *
-    find_indexed_entry(std::basic_string_view<CharType> key, uint32_t target_hash) const noexcept
+  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *find_indexed_entry(
+    std::basic_string_view<CharType> key, uint32_t target_hash) const noexcept
   {
     const auto entries = data_storage_.object_value;
     const auto &header = entries[-1];
     if ((header.first.metadata_ & (uint32_t{ 1 } << (target_hash & 31u))) != 0u) {
-      for (size_t i = 1; i < length_ && i < 8u; ++i) {
+      for (size_t i = 1; i < length_ && i < detail::indexed_prefix_scan_keys; ++i) {
         const auto &found = entries[i].first;
-        if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key) return entries + i;
+        if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key)
+          return entries + i;
       }
     }
     const auto key_index = header.first.data_storage_.byte_data;
@@ -332,22 +340,20 @@ private:
       if (encoded == 0u) return nullptr;
       const auto index = static_cast<size_t>(encoded - 1u);
       const auto &found = entries[index].first;
-      if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key) return entries + index;
+      if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key)
+        return entries + index;
       slot = static_cast<uint16_t>((slot + 1u) & mask);
     }
   }
 
 public:
   static constexpr size_t npos = static_cast<size_t>(-1);
-  static constexpr uint32_t calc_hash(std::basic_string_view<CharType> sv) noexcept { return detail::hash_key(sv); }
-  static constexpr const basic_json &null_value() noexcept
-  {
-    static constexpr basic_json value{};
-    return value;
-  }
+  [[nodiscard]] static constexpr uint32_t calc_hash(std::basic_string_view<CharType> sv) noexcept
+  { return detail::hash_key(sv); }
+  static constexpr const basic_json &null_value() noexcept { static constexpr basic_json value{}; return value; }
 
-  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *
-    find_entry(std::basic_string_view<CharType> key, uint32_t target_hash) const noexcept
+  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *find_entry(
+    std::basic_string_view<CharType> key, uint32_t target_hash) const noexcept
   {
     constexpr auto object_mask = 0b111u | dense_object_mask | indexed_object_mask;
     constexpr auto object_tag = static_cast<uint32_t>(Type::Object);
@@ -356,12 +362,12 @@ public:
       const auto entries = data_storage_.object_value;
       if (length_ != 0u) {
         const auto &found = entries[0].first;
-        if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key) return entries;
+        if (found.hash() == target_hash && found.size() == key.size() && found.getString() == key)
+          return entries;
       }
       return find_indexed_entry(key, target_hash);
     }
-    if (kind == object_tag) [[likely]]
-      return find_regular_entry(key, target_hash);
+    if (kind == object_tag) [[likely]] return find_regular_entry(key, target_hash);
     if (kind == (object_tag | dense_object_mask)) {
       const auto index = dense_index(key);
       return index == npos ? nullptr : data_storage_.object_value + index;
@@ -397,12 +403,16 @@ public:
   }
 
   template<typename Key>
-  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *find_entry(
-    const Key &key) const noexcept
-    requires(detail::string_like<Key, CharType> && !std::convertible_to<Key, std::basic_string_view<CharType>>)
+  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *find_entry(const Key &key) const noexcept
+    requires(detail::string_like<Key, CharType>
+             && !std::convertible_to<Key, std::basic_string_view<CharType>>)
   {
     return find_entry(detail::make_string_view<CharType>(key));
   }
+
+  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_value_pair_t<CharType> *find_entry(
+    detail::CompileTimeKey<CharType> key) const noexcept
+  { return find_entry(key.value, key.hash); }
 
   [[nodiscard]] constexpr Type type() const noexcept { return static_cast<Type>(metadata_ & 0b111); }
 
@@ -460,19 +470,20 @@ public:
     set_metadata(Type::Object, v.size(), sorted, 0);
   }
 
-  constexpr basic_json(basic_dense_object_t<CharType> v) : basic_json(v.value) { metadata_ |= dense_object_mask; }
+  constexpr basic_json(basic_dense_object_t<CharType> v) : basic_json(v.value)
+  { metadata_ |= dense_object_mask; }
 
-  constexpr basic_json(basic_indexed_object_ref_t<CharType> v) noexcept : data_storage_{ .object_value = v.entries }
-  {
-    set_metadata(Type::Object, v.size, false, 0);
-    metadata_ |= indexed_object_mask;
-  }
+  constexpr basic_json(basic_indexed_object_ref_t<CharType> v) noexcept
+    : data_storage_{ .object_value = v.entries }
+  { set_metadata(Type::Object, v.size, false, 0); metadata_ |= indexed_object_mask; }
 
   constexpr basic_json(detail::indexed_key_header v) noexcept
     : length_(v.mask), metadata_(v.prefix), data_storage_{ .byte_data = v.data }
   {}
 
-  constexpr basic_json(detail::indexed_value_header v) noexcept : data_storage_{ .byte_data = v.data } {}
+  constexpr basic_json(detail::indexed_value_header v) noexcept
+    : data_storage_{ .byte_data = v.data }
+  {}
 
   constexpr basic_json(std::basic_string_view<CharType> v) noexcept
   {
@@ -502,19 +513,18 @@ public:
 
   [[nodiscard]] constexpr const basic_json &operator[](std::integral auto index) const { return at(index); }
 
-  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_json &operator[](detail::CompileTimeKey<CharType> key) const
-  {
-    return at(key);
-  }
+  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_json &operator[](
+    detail::CompileTimeKey<CharType> key) const
+  { return at(key); }
 
-  template<size_t N> [[nodiscard]] constexpr const basic_json &operator[](CharType (&key)[N]) const
-  {
-    return at(std::basic_string_view<CharType>(key, N - 1));
-  }
+  template<size_t N>
+  [[nodiscard]] constexpr const basic_json &operator[](CharType (&key)[N]) const
+  { return at(std::basic_string_view<CharType>(key, N - 1)); }
 
   template<typename Key>
   [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_json &operator[](const Key &key) const
-    requires(detail::string_like<Key, CharType> && !std::is_array_v<std::remove_reference_t<Key>>)
+    requires(detail::string_like<Key, CharType>
+             && !std::is_array_v<std::remove_reference_t<Key>>)
   {
     return at(key);
   }
@@ -546,12 +556,12 @@ public:
     return t == Type::Array ? data_storage_.array_value[index] : object_entries()[index].second;
   }
 
-  template<size_t N> [[nodiscard]] constexpr const basic_json &at(CharType (&key)[N]) const
-  {
-    return at(std::basic_string_view<CharType>(key, N - 1));
-  }
+  template<size_t N>
+  [[nodiscard]] constexpr const basic_json &at(CharType (&key)[N]) const
+  { return at(std::basic_string_view<CharType>(key, N - 1)); }
 
-  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_json &at(detail::CompileTimeKey<CharType> key) const
+  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_json &at(
+    detail::CompileTimeKey<CharType> key) const
   {
     if (auto *ptr = find_entry(key.value, key.hash)) [[likely]]
       return ptr->second;
@@ -560,7 +570,8 @@ public:
 
   template<typename Key>
   [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr const basic_json &at(const Key &key) const
-    requires(detail::string_like<Key, CharType> && !std::is_array_v<std::remove_reference_t<Key>>)
+    requires(detail::string_like<Key, CharType>
+             && !std::is_array_v<std::remove_reference_t<Key>>)
   {
     if (auto *ptr = find_entry(detail::make_string_view<CharType>(key))) [[likely]]
       return ptr->second;
@@ -570,30 +581,28 @@ public:
   template<typename Key>
   [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr bool contains(Key &&key) const noexcept
     requires std::same_as<std::remove_cvref_t<Key>, std::basic_string_view<CharType>>
-  {
-    return find_entry(key) != nullptr;
-  }
+  { return find_entry(key) != nullptr; }
 
   template<typename Key>
   [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr bool contains(const Key &key) const noexcept
-    requires(detail::string_like<Key, CharType> && !std::is_array_v<std::remove_reference_t<Key>>
+    requires(detail::string_like<Key, CharType>
+             && !std::is_array_v<std::remove_reference_t<Key>>
              && !std::same_as<std::remove_cvref_t<Key>, std::basic_string_view<CharType>>)
   {
     return find_entry(detail::make_string_view<CharType>(key)) != nullptr;
   }
 
-  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr bool contains(detail::CompileTimeKey<CharType> key) const noexcept
-  {
-    return find_entry(key.value, key.hash) != nullptr;
-  }
+  [[nodiscard]] JSON2CPP_FORCE_INLINE constexpr bool contains(
+    detail::CompileTimeKey<CharType> key) const noexcept
+  { return find_entry(key.value, key.hash) != nullptr; }
 
-  template<size_t N> [[nodiscard]] constexpr bool contains(CharType (&key)[N]) const noexcept
-  {
-    return contains(std::basic_string_view<CharType>(key, N - 1));
-  }
+  template<size_t N>
+  [[nodiscard]] constexpr bool contains(CharType (&key)[N]) const noexcept
+  { return contains(std::basic_string_view<CharType>(key, N - 1)); }
 
   [[nodiscard]] constexpr size_t index(std::basic_string_view<CharType> value) const noexcept
   {
+    if (!is_array() && !is_object()) return npos;
     const auto target_hash = calc_hash(value);
     if (is_array()) {
       for (size_t i = 0; i < length_; ++i) {
@@ -671,7 +680,8 @@ public:
     return npos;
   }
 
-  template<typename T> [[nodiscard]] constexpr size_t index(const T &value) const noexcept
+  template<typename T>
+  [[nodiscard]] constexpr size_t index(const T &value) const noexcept
   {
     if constexpr (detail::string_like<T, CharType>) {
       return index(detail::make_string_view<CharType>(value));
@@ -749,6 +759,7 @@ public:
         detail::throw_domain_error("JSON value is not a number");
       if (t == Type::Integer) return static_cast<T>(data_storage_.int_value);
       if (t == Type::UInteger) return static_cast<T>(data_storage_.uint_value);
+      assert(detail::float_fits<T>(data_storage_.float_value));
       return static_cast<T>(data_storage_.float_value);
     } else {
       static_assert(sizeof(T) == 0, "Unsupported type for get<T>()");
@@ -757,55 +768,61 @@ public:
 };
 
 namespace detail {
-  template<typename CharType, size_t N>
-  consteval auto make_key_index(const std::array<basic_value_pair_t<CharType>, N> &entries, size_t first = 0)
-  {
-    static_assert(N <= 0xFFu);
-    constexpr auto capacity = [] {
-      size_t value = 1;
-      while (value < N * 2u) value *= 2u;
-      return value;
-    }();
-    std::array<uint8_t, capacity> result{};
-    // Generated objects can omit keys already handled by the prefix scan.
-    for (size_t i = first; i < N; ++i) {
-      auto slot = entries[i].first.hash() & (capacity - 1u);
-      while (result[slot] != 0u) slot = (slot + 1u) & (capacity - 1u);
-      result[slot] = static_cast<uint8_t>(i + 1u);
-    }
-    return result;
+template<typename CharType, size_t N>
+consteval auto make_key_index(const std::array<basic_value_pair_t<CharType>, N> &entries, size_t first = 0)
+{
+  static_assert(N <= 0xFFu);
+  if (first > indexed_prefix_scan_keys) {
+    throw "make_key_index: 'first' exceeds indexed_prefix_scan_keys, those keys would be unreachable";
   }
+  constexpr auto capacity = [] {
+    size_t value = 1;
+    while (value < N * 2u) value *= 2u;
+    return value;
+  }();
+  std::array<uint8_t, capacity> result{};
 
-  template<typename CharType, size_t N>
-  consteval uint32_t make_key_prefix_mask(const std::array<basic_value_pair_t<CharType>, N> &entries)
-  {
-    uint32_t result = 0;
-    for (size_t i = 0; i < N && i < 8u; ++i) result |= uint32_t{ 1 } << (entries[i].first.hash() & 31u);
-    return result;
+  for (size_t i = first; i < N; ++i) {
+    auto slot = entries[i].first.hash() & (capacity - 1u);
+    while (result[slot] != 0u) slot = (slot + 1u) & (capacity - 1u);
+    result[slot] = static_cast<uint8_t>(i + 1u);
   }
+  return result;
+}
 
-  template<typename CharType, size_t N, size_t KeySize>
-  consteval auto make_indexed_entries(const std::array<basic_value_pair_t<CharType>, N> &entries,
-    const std::array<uint8_t, KeySize> &key_index,
-    const std::array<uint8_t, N> &value_hashes)
-  {
-    std::array<basic_value_pair_t<CharType>, N + 1u> result{};
-    result[0] = { basic_json<CharType>{
-                    indexed_key_header{ key_index.data(), KeySize - 1u, make_key_prefix_mask(entries) } },
-      basic_json<CharType>{ indexed_value_header{ value_hashes.data() } } };
-    for (size_t i = 0; i < N; ++i) result[i + 1u] = entries[i];
-    return result;
-  }
+template<typename CharType, size_t N>
+consteval uint32_t make_key_prefix_mask(const std::array<basic_value_pair_t<CharType>, N> &entries)
+{
+  uint32_t result = 0;
+  for (size_t i = 0; i < N && i < indexed_prefix_scan_keys; ++i)
+    result |= uint32_t{ 1 } << (entries[i].first.hash() & 31u);
+  return result;
+}
 
-  template<typename CharType, size_t N>
-  consteval auto make_value_hashes(const std::array<basic_value_pair_t<CharType>, N> &entries)
-  {
-    std::array<uint8_t, N> result{};
-    for (size_t i = 0; i < N; ++i)
-      result[i] = entries[i].second.is_string() ? static_cast<uint8_t>(entries[i].second.hash()) : 0u;
-    return result;
-  }
-}// namespace detail
+template<typename CharType, size_t N, size_t KeySize>
+consteval auto make_indexed_entries(
+  const std::array<basic_value_pair_t<CharType>, N> &entries,
+  const std::array<uint8_t, KeySize> &key_index,
+  const std::array<uint8_t, N> &value_hashes)
+{
+  std::array<basic_value_pair_t<CharType>, N + 1u> result{};
+  result[0] = {
+    basic_json<CharType>{ indexed_key_header{ key_index.data(), KeySize - 1u, make_key_prefix_mask(entries) } },
+    basic_json<CharType>{ indexed_value_header{ value_hashes.data() } }
+  };
+  for (size_t i = 0; i < N; ++i) result[i + 1u] = entries[i];
+  return result;
+}
+
+template<typename CharType, size_t N>
+consteval auto make_value_hashes(const std::array<basic_value_pair_t<CharType>, N> &entries)
+{
+  std::array<uint8_t, N> result{};
+  for (size_t i = 0; i < N; ++i)
+    result[i] = entries[i].second.is_string() ? static_cast<uint8_t>(entries[i].second.hash()) : 0u;
+  return result;
+}
+}
 
 #ifdef JSON2CPP_USE_UTF16
 using basicType = char16_t;
@@ -827,6 +844,6 @@ using value_pair_t = basic_value_pair_t<basicType>;
 
 #undef JSON2CPP_FORCE_INLINE
 
-}// namespace json2cpp
+}
 
 #endif
