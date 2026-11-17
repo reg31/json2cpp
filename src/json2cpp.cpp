@@ -30,6 +30,7 @@ SOFTWARE.
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <ranges>
 #include <set>
@@ -185,6 +186,9 @@ std::string escape_string(const std::string &str)
     case '\t':
       result += "\\t";
       break;
+    case '?':
+      result += (!result.empty() && result.back() == '?') ? "\\?" : "?";
+      break;
     default: {
       const auto byte = static_cast<unsigned char>(character);
       if (byte < 0x20u || byte == 0x7Fu) {
@@ -272,10 +276,18 @@ struct StringDuplicateTracker
   void generate_definitions()
   {
     for (const auto &[str, count] : string_counts) {
+      std::string repr = format_json_string(str);
+      if (str.size() > 8u) {
+        const auto id = counter++;
+        definitions.emplace_back(
+          std::format("alignas(1) constexpr basicType l{}[] = RAW_LIT(\"{}\");", id, escape_string(str)));
+        repr = std::format("J2V(l{})", id);
+        if (count == 1) string_to_var[str] = repr;
+      }
       if (count > 1) {
         std::string var_name = std::format("s{}", counter++);
         string_to_var[str] = var_name;
-        definitions.emplace_back(std::format("constexpr auto {} = {};", var_name, format_json_string(str)));
+        definitions.emplace_back(std::format("constexpr json {}{{ {} }};", var_name, repr));
       }
     }
     if (!definitions.empty()) definitions.emplace_back();
@@ -292,7 +304,11 @@ struct StringDuplicateTracker
   }
 
   const std::vector<std::string> &get_definitions() const { return definitions; }
-  std::size_t get_reused_count() const { return string_to_var.size(); }
+  std::size_t get_reused_count() const
+  {
+    return static_cast<std::size_t>(
+      std::ranges::count_if(string_to_var, [this](const auto &entry) { return string_counts.at(entry.first) > 1; }));
+  }
   int32_t get_total_references_saved() const
   {
     int32_t count = 0;
@@ -308,7 +324,7 @@ struct DuplicateTracker
   std::set<std::string> processed_vars;
   std::size_t counter = 0;
   const std::string prefix;
-  std::size_t min_size = 3;
+  std::size_t min_size = 1;
 
   DuplicateTracker(std::string p) : prefix(std::move(p)) {}
 
@@ -349,22 +365,18 @@ struct DuplicateTracker
 void analyze_for_duplicates(const nlohmann::ordered_json &value,
   StringDuplicateTracker &string_tracker,
   DuplicateTracker &object_tracker,
-  DuplicateTracker &array_tracker,
-  DuplicateTracker &pair_tracker)
+  DuplicateTracker &array_tracker)
 {
   if (value.is_object()) {
     object_tracker.track(value);
     for (auto itr = value.begin(); itr != value.end(); ++itr) {
       string_tracker.count_string(itr.key(), true);
-      nlohmann::ordered_json pair_rep;
-      pair_rep[itr.key()] = *itr;
-      pair_tracker.track(pair_rep);
-      analyze_for_duplicates(*itr, string_tracker, object_tracker, array_tracker, pair_tracker);
+      analyze_for_duplicates(*itr, string_tracker, object_tracker, array_tracker);
     }
   } else if (value.is_array()) {
     array_tracker.track(value);
     for (const auto &item : value) {
-      analyze_for_duplicates(item, string_tracker, object_tracker, array_tracker, pair_tracker);
+      analyze_for_duplicates(item, string_tracker, object_tracker, array_tracker);
     }
   } else if (value.is_string()) {
     string_tracker.count_string(value.get<std::string>());
@@ -376,12 +388,11 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
   std::vector<std::string> &lines,
   StringDuplicateTracker &string_tracker,
   DuplicateTracker &object_tracker,
-  DuplicateTracker &array_tracker,
-  DuplicateTracker &pair_tracker);
+  DuplicateTracker &array_tracker);
 
 bool is_indexed_object(const nlohmann::ordered_json &value)
 {
-  return value.is_object() && value.size() >= 64u && value.size() <= 0xFFu;
+  return value.is_object() && value.size() >= 64u && value.size() < 0xFFFFu;
 }
 
 bool is_dense_object(const nlohmann::ordered_json &value)
@@ -398,8 +409,7 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
   std::vector<std::string> &lines,
   StringDuplicateTracker &string_tracker,
   DuplicateTracker &object_tracker,
-  DuplicateTracker &array_tracker,
-  DuplicateTracker &pair_tracker)
+  DuplicateTracker &array_tracker)
 {
   const auto current_object_number = obj_count++;
   const std::string obj_name = std::format("d{}", current_object_number);
@@ -407,38 +417,25 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
   if (value.is_object()) {
     std::vector<std::string> pairs;
     for (auto itr = value.begin(); itr != value.end(); ++itr) {
-      nlohmann::ordered_json pair_rep;
-      pair_rep[itr.key()] = *itr;
-
-      if (pair_tracker.is_shared(pair_rep)) {
-        auto var_name = pair_tracker.get_var_name(pair_rep);
-        if (!pair_tracker.is_processed(var_name)) {
-          pair_tracker.mark_as_processed(var_name);
-          const auto key_repr = string_tracker.get_string_representation(itr.key());
-          const auto val_repr =
-            compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
-          lines.emplace_back(std::format("constexpr auto {} = value_pair_t{{{}, {}}};", var_name, key_repr, val_repr));
-        }
-        pairs.emplace_back(std::format("{},", var_name));
-      } else {
-        const auto key_repr = string_tracker.get_string_representation(itr.key());
-        pairs.emplace_back(std::format("{{{}, {}}},",
-          key_repr,
-          compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker)));
-      }
+      const auto key_repr = string_tracker.get_string_representation(itr.key());
+      pairs.emplace_back(std::format("{{{}, {}}},",
+        key_repr,
+        compile_dispatch(*itr, obj_count, lines, string_tracker, object_tracker, array_tracker)));
     }
 
-    lines.emplace_back(std::format("constexpr std::array<value_pair_t, {}> {} = {{{{", pairs.size(), obj_name));
+    lines.emplace_back(
+      std::format("alignas(json) constexpr std::array<value_pair_t, {}> {} = {{{{", pairs.size(), obj_name));
     for (const auto &pair : pairs) { lines.emplace_back(std::format("  {}", pair)); }
     lines.emplace_back("}};");
     if (is_dense_object(value)) return std::format("dense_object_t{{object_t{{{}}}}}", obj_name);
     if (is_indexed_object(value)) {
       lines.emplace_back(
-        std::format("constexpr auto {}_key_index = json2cpp::detail::make_key_index({}, 8);", obj_name, obj_name));
+        std::format("constexpr auto {}_key_index = json2cpp::detail::make_key_index({});", obj_name, obj_name));
       lines.emplace_back(
         std::format("constexpr auto {}_value_hashes = json2cpp::detail::make_value_hashes({});", obj_name, obj_name));
       lines.emplace_back(std::format(
-        "constexpr auto {}_indexed = json2cpp::detail::make_indexed_entries({}, {}_key_index, {}_value_hashes);",
+        "alignas(json) constexpr auto {}_indexed = json2cpp::detail::make_indexed_entries({}, {}_key_index, "
+        "{}_value_hashes);",
         obj_name,
         obj_name,
         obj_name,
@@ -451,10 +448,10 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
     std::vector<std::string> entries;
     for (const auto &child : value) {
       entries.emplace_back(std::format("{{{}}},",
-        compile_dispatch(child, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker)));
+        compile_dispatch(child, obj_count, lines, string_tracker, object_tracker, array_tracker)));
     }
 
-    lines.emplace_back(std::format("constexpr std::array<json, {}> {} = {{{{", entries.size(), obj_name));
+    lines.emplace_back(std::format("alignas(json) constexpr std::array<json, {}> {} = {{{{", entries.size(), obj_name));
     for (const auto &entry : entries) { lines.emplace_back(std::format("  {}", entry)); }
     lines.emplace_back("}};");
     return std::format("array_t{{{}}}", obj_name);
@@ -469,15 +466,14 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
   std::vector<std::string> &lines,
   StringDuplicateTracker &string_tracker,
   DuplicateTracker &object_tracker,
-  DuplicateTracker &array_tracker,
-  DuplicateTracker &pair_tracker)
+  DuplicateTracker &array_tracker)
 {
   if (value.is_object() && object_tracker.is_shared(value)) {
     auto var_name = object_tracker.get_var_name(value);
     if (object_tracker.is_processed(var_name)) { return var_name; }
     object_tracker.mark_as_processed(var_name);
     auto body =
-      generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
+      generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
     lines.emplace_back(std::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
     return var_name;
   }
@@ -487,19 +483,21 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
     if (array_tracker.is_processed(var_name)) { return var_name; }
     array_tracker.mark_as_processed(var_name);
     auto body =
-      generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
+      generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
     lines.emplace_back(std::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
     return var_name;
   }
 
   if (value.is_object() || value.is_array()) {
-    return generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker, pair_tracker);
+    return generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
   } else if (value.is_number_float()) {
-    return std::format("double{{{}}}", value.get<double>());
+    return std::format("double{{{:#}}}", value.get<double>());
   } else if (value.is_number_unsigned()) {
-    return std::format("std::uint64_t{{{}}}", value.get<std::uint64_t>());
+    return std::format("std::uint64_t{{{}u}}", value.get<std::uint64_t>());
   } else if (value.is_number()) {
-    return std::format("std::int64_t{{{}}}", value.get<std::int64_t>());
+    const auto v = value.get<std::int64_t>();
+    if (v == std::numeric_limits<std::int64_t>::min()) return "std::int64_t{-9223372036854775807 - 1}";
+    return std::format("std::int64_t{{{}}}", v);
   } else if (value.is_boolean()) {
     return std::format("bool{{{}}}", value.get<bool>());
   } else if (value.is_string()) {
@@ -517,14 +515,12 @@ compile_results compile_impl(const std::string_view original_name, const nlohman
   StringDuplicateTracker string_tracker;
   DuplicateTracker object_tracker("o");
   DuplicateTracker array_tracker("a");
-  DuplicateTracker pair_tracker("p");
   compile_results results;
 
-  analyze_for_duplicates(json, string_tracker, object_tracker, array_tracker, pair_tracker);
+  analyze_for_duplicates(json, string_tracker, object_tracker, array_tracker);
   string_tracker.generate_definitions();
   object_tracker.prepare_variables();
   array_tracker.prepare_variables();
-  pair_tracker.prepare_variables();
 
   results.hpp.emplace_back(std::format("#ifndef {}_COMPILED_JSON", document_name));
   results.hpp.emplace_back(std::format("#define {}_COMPILED_JSON", document_name));
@@ -543,10 +539,16 @@ namespace compiled_json::{}::impl {{
   #ifdef JSON2CPP_USE_UTF16
   typedef char16_t basicType;
   #define RAW_PREFIX(str) u"" str ""sv
+  #define RAW_LIT(str) u"" str
   #else
   typedef char basicType;
   #define RAW_PREFIX(str) str ""sv
+  #define RAW_LIT(str) str
   #endif
+  template<std::size_t N> constexpr std::basic_string_view<basicType> J2V(const basicType (&text)[N]) noexcept
+  {{
+    return {{ text, N - 1 }};
+  }}
   using json = json2cpp::basic_json<basicType>;
   using array_t = json2cpp::basic_array_t<basicType>;
   using object_t = json2cpp::basic_object_t<basicType>;
@@ -561,11 +563,12 @@ namespace compiled_json::{}::impl {{
 
   std::size_t obj_count = 0;
   const auto last_obj_name =
-    compile_dispatch(json, obj_count, results.impl, string_tracker, object_tracker, array_tracker, pair_tracker);
+    compile_dispatch(json, obj_count, results.impl, string_tracker, object_tracker, array_tracker);
 
   results.impl.emplace_back(std::format(R"(
   constexpr auto document = json{{{{ {} }}}};
   #undef RAW_PREFIX
+  #undef RAW_LIT
 }}
 #endif)",
     last_obj_name));
@@ -579,7 +582,6 @@ namespace compiled_json::{}::impl {{
   report_reuse("strings", "min length", string_tracker, string_tracker.min_string_length);
   report_reuse("arrays", "min size", array_tracker, array_tracker.min_size);
   report_reuse("objects", "min size", object_tracker, object_tracker.min_size);
-  report_reuse("key-value pairs", "min size", pair_tracker, pair_tracker.min_size);
 
   return results;
 }
