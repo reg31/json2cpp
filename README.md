@@ -16,10 +16,11 @@ evaluation.
 - String literals passed to `at()`, `operator[]`, and `contains()` are prehashed with
   `consteval`.
 - Dense objects keyed `"0"`, `"1"`, ... use direct numeric lookup.
-- Objects with 64 to 255 keys receive a compile-time byte-sized side index while
-  preserving their contiguous pair storage and source order.
-- Naturally sorted regular objects use binary search; other regular objects use
-  hash-first linear search.
+- Objects with 64 to 65,534 keys receive a compile-time hash index (8-bit slots up to
+  254 keys, 16-bit above) while preserving their contiguous pair storage and source order.
+- Smaller regular objects use hash-first linear search.
+- Lookups are compiled out of line, so each literal-key lookup in your code is a single
+  call with its hash precomputed.
 - UTF-8 (`char`) is the default; UTF-16 (`char16_t`) is optional.
 - A generated `.cpp` firewall keeps large resources out of consumer translation units.
 
@@ -33,7 +34,7 @@ does not parse, mutate, allocate, or own JSON data at runtime.
 
 Object, array, and string lengths are stored as 32-bit values. Generated documents
 must therefore contain fewer than `UINT32_MAX` elements in any single container or
-string. The byte side index is used only when an object has at most 255 keys; larger
+string. The hash index is used only when an object has at most 65,534 keys; larger
 objects automatically remain regular objects.
 
 ## Installation
@@ -306,9 +307,9 @@ const auto *entry = config.find_entry(key, hash);
 
 The supplied hash must have been calculated from the same key.
 
-Generated lookup tables omit keys already covered by the fast prefix scan.
-Regenerate your JSON sources with the updated generator and header to use this
-optimization; existing generated sources remain compatible with the new header.
+Generated lookup tables index every key. Existing generated sources remain compatible
+with the new header; regenerate them with the updated generator for smaller data that
+compiles faster.
 
 #### `calc_hash()` and `null_value()`
 
