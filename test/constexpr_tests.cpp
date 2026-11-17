@@ -19,8 +19,11 @@ TEST_CASE("Indexed objects find every key, 8-bit and 16-bit hash slots")
   STATIC_REQUIRE((layouts["wide"].size() == 300 && layouts["narrow"].size() == 100));
   STATIC_REQUIRE([] {
     for (int i = 0; i < 300; ++i) {
-      const char key[] = { 'w', static_cast<char>('0' + i / 100), static_cast<char>('0' + i / 10 % 10),
-        static_cast<char>('0' + i % 10), '\0' };
+      const char key[] = { 'w',
+        static_cast<char>('0' + i / 100),
+        static_cast<char>('0' + i / 10 % 10),
+        static_cast<char>('0' + i % 10),
+        '\0' };
       if (layouts["wide"].at(std::string_view{ key }) != i) return false;
     }
     return true;
@@ -33,7 +36,8 @@ TEST_CASE("Indexed objects find every key, 8-bit and 16-bit hash slots")
 TEST_CASE("Deduplicated, dense and empty objects keep their own values")
 {
   STATIC_REQUIRE((layouts["points"][0]["x"] == 1 && layouts["points"][2]["y"] == 6));
-  STATIC_REQUIRE((layouts["points"][1].items().front().first == "x" && layouts["points"][1].items().back().second == 4));
+  STATIC_REQUIRE(
+    (layouts["points"][1].items().front().first == "x" && layouts["points"][1].items().back().second == 4));
   STATIC_REQUIRE((layouts["dup_a"] == layouts["dup_b"] && !(layouts["dup_a"] == layouts["points"][1])));
   STATIC_REQUIRE((layouts["unique"]["once"] == true && layouts["unique"]["only"] == "here"));
   STATIC_REQUIRE((layouts["dense"]["3"] == "d" && !layouts["dense"].contains("03")));
@@ -114,7 +118,8 @@ TEST_CASE("Padded char buffer keys stop at the first NUL")
 {
   STATIC_REQUIRE([] {
     char key[16] = "glossary";
-    return compiled_json::test_json::impl::document.contains(key) && !compiled_json::test_json::impl::document[key].is_null();
+    return compiled_json::test_json::impl::document.contains(key)
+           && !compiled_json::test_json::impl::document[key].is_null();
   }());
 }
 
