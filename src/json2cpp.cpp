@@ -375,9 +375,7 @@ void analyze_for_duplicates(const nlohmann::ordered_json &value,
     }
   } else if (value.is_array()) {
     array_tracker.track(value);
-    for (const auto &item : value) {
-      analyze_for_duplicates(item, string_tracker, object_tracker, array_tracker);
-    }
+    for (const auto &item : value) { analyze_for_duplicates(item, string_tracker, object_tracker, array_tracker); }
   } else if (value.is_string()) {
     string_tracker.count_string(value.get<std::string>());
   }
@@ -447,8 +445,8 @@ std::string generate_node_body(const nlohmann::ordered_json &value,
   } else if (value.is_array()) {
     std::vector<std::string> entries;
     for (const auto &child : value) {
-      entries.emplace_back(std::format("{{{}}},",
-        compile_dispatch(child, obj_count, lines, string_tracker, object_tracker, array_tracker)));
+      entries.emplace_back(std::format(
+        "{{{}}},", compile_dispatch(child, obj_count, lines, string_tracker, object_tracker, array_tracker)));
     }
 
     lines.emplace_back(std::format("alignas(json) constexpr std::array<json, {}> {} = {{{{", entries.size(), obj_name));
@@ -472,8 +470,7 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
     auto var_name = object_tracker.get_var_name(value);
     if (object_tracker.is_processed(var_name)) { return var_name; }
     object_tracker.mark_as_processed(var_name);
-    auto body =
-      generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
+    auto body = generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
     lines.emplace_back(std::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
     return var_name;
   }
@@ -482,8 +479,7 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
     auto var_name = array_tracker.get_var_name(value);
     if (array_tracker.is_processed(var_name)) { return var_name; }
     array_tracker.mark_as_processed(var_name);
-    auto body =
-      generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
+    auto body = generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
     lines.emplace_back(std::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
     return var_name;
   }

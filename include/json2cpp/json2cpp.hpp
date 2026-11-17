@@ -280,8 +280,8 @@ private:
   {
     assert(!std::cmp_greater(len, std::numeric_limits<uint32_t>::max()));
     length_ = static_cast<uint32_t>(len);
-    metadata_ = (std::to_underlying(t) & 0b111u) | ((static_cast<uint32_t>(sorted) & 0b1) << 3)
-                | ((hash_val & 0x0FFFFFFF) << 4);
+    metadata_ =
+      (std::to_underlying(t) & 0b111u) | ((static_cast<uint32_t>(sorted) & 0b1) << 3) | ((hash_val & 0x0FFFFFFF) << 4);
   }
 
   [[nodiscard]] constexpr uint32_t object_kind() const noexcept { return metadata_ & object_kind_mask; }
@@ -298,9 +298,8 @@ private:
   {
     return static_cast<uint32_t>(Type::String) | (hash << 4u);
   }
-  [[nodiscard]] static constexpr bool key_matches(const basic_json &candidate,
-    std::basic_string_view<CharType> key,
-    uint32_t metadata) noexcept
+  [[nodiscard]] static constexpr bool
+    key_matches(const basic_json &candidate, std::basic_string_view<CharType> key, uint32_t metadata) noexcept
   {
     return candidate.metadata_ == metadata && candidate.length_ == key.size()
            && detail::same_chars(candidate.data(), key.data(), key.size());
@@ -320,9 +319,8 @@ private:
     return index;
   }
 
-  [[nodiscard]] constexpr size_t find_indexed(std::basic_string_view<CharType> key,
-    uint32_t metadata,
-    uint32_t hash) const noexcept
+  [[nodiscard]] constexpr size_t
+    find_indexed(std::basic_string_view<CharType> key, uint32_t metadata, uint32_t hash) const noexcept
   {
     const auto *entries = data_storage_.object_value;
     const auto &header = entries[-1].first;
@@ -563,8 +561,7 @@ public:
     set_metadata(Type::Float, 0, false, 0);
   }
 
-  template<int = 0>
-  constexpr basic_json(basic_array_t<CharType> v) noexcept : data_storage_{ .array_value = v.data() }
+  template<int = 0> constexpr basic_json(basic_array_t<CharType> v) noexcept : data_storage_{ .array_value = v.data() }
   {
     set_metadata(Type::Array, v.size(), false, 0);
   }
@@ -900,7 +897,8 @@ namespace detail {
     const std::array<uint8_t, N> &value_hashes)
   {
     std::array<basic_value_pair_t<CharType>, N + 1u> result{};
-    result[0] = { basic_json<CharType>{ indexed_key_header<Slot>{ key_index.data(), static_cast<uint32_t>(KeySize - 1u) } },
+    result[0] = { basic_json<CharType>{
+                    indexed_key_header<Slot>{ key_index.data(), static_cast<uint32_t>(KeySize - 1u) } },
       basic_json<CharType>{ indexed_value_header{ value_hashes.data() } } };
     for (size_t i = 0; i < N; ++i) result[i + 1u] = entries[i];
     return result;
