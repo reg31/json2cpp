@@ -72,11 +72,20 @@ add_custom_command(
           "${DOUBLE_BASE_NAME}"
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
+set(FRACTIONAL_BASE_NAME "${CMAKE_CURRENT_BINARY_DIR}/array_doubles_fractional")
+add_custom_command(
+  DEPENDS json2cpp
+  OUTPUT "${FRACTIONAL_BASE_NAME}_impl.hpp" "${FRACTIONAL_BASE_NAME}.hpp" "${FRACTIONAL_BASE_NAME}.cpp"
+  COMMAND json2cpp "array_doubles_fractional" "${CMAKE_SOURCE_DIR}/examples/array_doubles_fractional.json"
+          "${FRACTIONAL_BASE_NAME}"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
 add_executable(
   valijson_tests
   valijson_tests.cpp
   ${SCHEMA_BASE_NAME}.cpp
   ${DOUBLE_BASE_NAME}.cpp
+  ${FRACTIONAL_BASE_NAME}.cpp
   ${INT_BASE_NAME}.cpp)
 target_include_directories(valijson_tests PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_include_directories(valijson_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
@@ -106,8 +115,23 @@ catch_discover_tests(
   OUTPUT_SUFFIX
   .xml)
 
+set(EDGE_BASE_NAME "${CMAKE_CURRENT_BINARY_DIR}/edge_values")
+add_custom_command(
+  DEPENDS json2cpp
+  OUTPUT "${EDGE_BASE_NAME}_impl.hpp" "${EDGE_BASE_NAME}.hpp" "${EDGE_BASE_NAME}.cpp"
+  COMMAND json2cpp "edge_values" "${CMAKE_SOURCE_DIR}/examples/edge_values.json" "${EDGE_BASE_NAME}"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+set(LAYOUTS_BASE_NAME "${CMAKE_CURRENT_BINARY_DIR}/layouts")
+add_custom_command(
+  DEPENDS json2cpp
+  OUTPUT "${LAYOUTS_BASE_NAME}_impl.hpp" "${LAYOUTS_BASE_NAME}.hpp" "${LAYOUTS_BASE_NAME}.cpp"
+  COMMAND json2cpp "layouts" "${CMAKE_SOURCE_DIR}/examples/layouts.json" "${LAYOUTS_BASE_NAME}"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
 # Add a file containing a set of constexpr tests
-add_executable(constexpr_tests constexpr_tests.cpp "${BASE_NAME}_impl.hpp")
+add_executable(constexpr_tests constexpr_tests.cpp "${BASE_NAME}_impl.hpp" "${EDGE_BASE_NAME}_impl.hpp"
+                               "${LAYOUTS_BASE_NAME}_impl.hpp")
 target_link_libraries(constexpr_tests PRIVATE json2cpp_options json2cpp_warnings Catch2::Catch2WithMain)
 
 target_include_directories(constexpr_tests PRIVATE "${CMAKE_SOURCE_DIR}/include")
@@ -128,7 +152,8 @@ catch_discover_tests(
 
 # Disable the constexpr portion of the test, and build again this allows us to have an executable that we can debug when
 # things go wrong with the constexpr testing
-add_executable(relaxed_constexpr_tests constexpr_tests.cpp "${BASE_NAME}_impl.hpp")
+add_executable(relaxed_constexpr_tests constexpr_tests.cpp "${BASE_NAME}_impl.hpp" "${EDGE_BASE_NAME}_impl.hpp"
+                                       "${LAYOUTS_BASE_NAME}_impl.hpp")
 target_link_libraries(relaxed_constexpr_tests PRIVATE json2cpp_options json2cpp_warnings Catch2::Catch2WithMain)
 target_compile_definitions(relaxed_constexpr_tests PRIVATE -DCATCH_CONFIG_RUNTIME_STATIC_REQUIRE)
 target_include_directories(relaxed_constexpr_tests PRIVATE "${CMAKE_SOURCE_DIR}/include")

@@ -14,16 +14,25 @@ TEST_CASE("Can iterate object")
   const auto &document = compiled_json::test_json::get();
 
   std::size_t elements = 0;
-  for (const auto &json : document) {
-    REQUIRE(!json.is_null());
+  for (const auto &[key, value] : document.items()) {
+    REQUIRE(key.is_string());
+    REQUIRE(!value.is_null());
     ++elements;
   }
 
   REQUIRE(elements == document.size());
 }
 
+TEST_CASE("Long strings compare by content at runtime")
+{
+  const auto &title = compiled_json::test_json::get()["glossary"]["title"];
+  REQUIRE(title == "example glossary");
+  REQUIRE_FALSE(title == "example glossarz");
+  REQUIRE(compiled_json::test_json::get()["glossary"].contains(std::string{ "GlossDiv" }));
+}
+
 TEST_CASE("Can read iterator key")
 {
   const auto &document = compiled_json::test_json::get();
-  REQUIRE(document.begin().key() == "glossary");
+  REQUIRE(document.items().front().first == "glossary");
 }

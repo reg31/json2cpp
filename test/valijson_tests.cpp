@@ -1,5 +1,6 @@
 #include "allof_integers_and_numbers.schema.hpp"
 #include "array_doubles_10_20_30_40.hpp"
+#include "array_doubles_fractional.hpp"
 #include "array_integers_10_20_30_40.hpp"
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
@@ -46,9 +47,29 @@ TEST_CASE("Validation fails where expected")
   CHECK_NOTHROW(parser.populateSchema(mySchemaAdapter, mySchema));
 
   Validator validator;
-  const json2cppJsonAdapter myTargetAdapter(compiled_json::array_doubles_10_20_30_40::get());
+  const json2cppJsonAdapter myTargetAdapter(compiled_json::array_doubles_fractional::get());
 
   REQUIRE_FALSE(validator.validate(mySchema, myTargetAdapter, nullptr));
+}
+
+
+TEST_CASE("Doubles with no fractional part satisfy an integer schema")
+{
+  using valijson::Schema;
+  using valijson::SchemaParser;
+  using valijson::Validator;
+  using valijson::adapters::json2cppJsonAdapter;
+
+
+  Schema mySchema;
+  SchemaParser parser;
+  const json2cppJsonAdapter mySchemaAdapter(compiled_json::allof_integers_and_numbers_schema::get());
+  CHECK_NOTHROW(parser.populateSchema(mySchemaAdapter, mySchema));
+
+  Validator validator;
+  const json2cppJsonAdapter myTargetAdapter(compiled_json::array_doubles_10_20_30_40::get());
+
+  REQUIRE(validator.validate(mySchema, myTargetAdapter, nullptr));
 }
 
 
