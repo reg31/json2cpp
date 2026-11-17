@@ -75,6 +75,32 @@ namespace detail {
     return word;
   }
 
+  template<typename CharType> inline uint64_t load_tail(const CharType *p, size_t count, bool word_before) noexcept
+  {
+    const auto bytes = count * sizeof(CharType);
+    const auto *b = reinterpret_cast<const unsigned char *>(p);
+    if (word_before) {
+      uint64_t word = 0;
+      std::memcpy(&word, b + bytes - sizeof word, sizeof word);
+      return word >> ((sizeof word - bytes) * 8u);
+    }
+    if (bytes >= 4u) {
+      uint32_t lo = 0;
+      uint32_t hi = 0;
+      std::memcpy(&lo, b, sizeof lo);
+      std::memcpy(&hi, b + bytes - sizeof hi, sizeof hi);
+      return lo | (uint64_t{ hi } << ((bytes - sizeof hi) * 8u));
+    }
+    if (bytes >= 2u) {
+      uint16_t lo = 0;
+      uint16_t hi = 0;
+      std::memcpy(&lo, b, sizeof lo);
+      std::memcpy(&hi, b + bytes - sizeof hi, sizeof hi);
+      return lo | (uint64_t{ hi } << ((bytes - sizeof hi) * 8u));
+    }
+    return b[0];
+  }
+
   template<typename CharType> constexpr uint32_t hash_key(std::basic_string_view<CharType> str) noexcept
   {
     constexpr size_t per_word = sizeof(uint64_t) / sizeof(CharType);
@@ -95,7 +121,16 @@ namespace detail {
       h ^= h >> 31u;
     }
     if (remaining != 0u) {
-      h = (h ^ load_le(p, remaining)) * 0x94d049bb133111ebull;
+      uint64_t tail = 0;
+      if consteval {
+        tail = load_le(p, remaining);
+      } else {
+        if constexpr (std::endian::native == std::endian::little)
+          tail = load_tail(p, remaining, str.size() >= per_word);
+        else
+          tail = load_le(p, remaining);
+      }
+      h = (h ^ tail) * 0x94d049bb133111ebull;
       h ^= h >> 29u;
     }
     h *= 0xff51afd7ed558ccdull;
@@ -318,32 +353,22 @@ private:
     }
   }
 
-  [[nodiscard]] constexpr size_t find_index_impl(const CharType *data, size_t size) const noexcept
-  {
-    const std::basic_string_view<CharType> key{ data, size };
-    return is_dense_object() ? dense_index(key) : find_index_impl(data, size, calc_hash(key));
-  }
-
   JSON2CPP_FIND constexpr size_t find_index_raw(const CharType *data, size_t size, uint32_t hash) const noexcept
   {
     return find_index_impl(data, size, hash);
   }
   JSON2CPP_FIND constexpr size_t find_index_raw(const CharType *data, size_t size) const noexcept
   {
-    return find_index_impl(data, size);
+    return find_index_impl(data, size, calc_hash({ data, size }));
   }
   JSON2CPP_LOOKUP constexpr const basic_json &value_by_key(const CharType *data, size_t size, uint32_t hash) const
   {
     return value_or_throw(find_index_impl(data, size, hash));
   }
-  JSON2CPP_LOOKUP constexpr const basic_json &value_by_key(const CharType *data, size_t size) const
-  {
-    return value_or_throw(find_index_impl(data, size));
-  }
 
   [[nodiscard]] constexpr size_t find_index(std::basic_string_view<CharType> key) const noexcept
   {
-    return find_index_raw(key.data(), key.size());
+    return is_dense_object() ? dense_index(key) : find_index_raw(key.data(), key.size());
   }
 
   [[nodiscard]] constexpr const basic_value_pair_t<CharType> *entry_at(size_t index) const noexcept
@@ -617,8 +642,10 @@ public:
   {
     if constexpr (std::is_same_v<T, bool>) {
       return eq_bool(other);
+    } else if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+      return eq_int(other);
     } else if constexpr (std::is_integral_v<T>) {
-      return std::is_signed_v<T> ? eq_int(other) : eq_uint(other);
+      return eq_uint(other);
     } else if constexpr (std::is_floating_point_v<T>) {
       return eq_float(other);
     } else if constexpr (std::convertible_to<T, std::basic_string_view<CharType>>) {
@@ -656,8 +683,7 @@ public:
   [[nodiscard]] constexpr const basic_json &at(const Key &key) const
     requires(detail::string_like<Key, CharType> && !std::is_array_v<std::remove_reference_t<Key>>)
   {
-    const auto view = detail::make_string_view<CharType>(key);
-    return value_by_key(view.data(), view.size());
+    return value_or_throw(find_index(detail::make_string_view<CharType>(key)));
   }
 
   template<typename Key>
