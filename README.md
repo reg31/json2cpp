@@ -266,7 +266,9 @@ const auto &first_value = config.at(0); // Object values use stored order.
 ```
 
 Mutable character arrays are accepted too; they are hashed at runtime and read up to
-their first NUL.
+their first NUL. String literals and const character arrays preserve embedded NULs
+and omit one trailing terminator. Use a `std::string_view` of the desired length
+for a const buffer with padding.
 
 #### `contains()`
 

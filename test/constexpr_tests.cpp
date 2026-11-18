@@ -2,6 +2,7 @@
 #include "layouts_impl.hpp"
 #include "test_json_impl.hpp"
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
@@ -118,9 +119,43 @@ TEST_CASE("Padded char buffer keys stop at the first NUL")
 {
   STATIC_REQUIRE([] {
     char key[16] = "glossary";
-    return compiled_json::test_json::impl::document.contains(key)
-           && !compiled_json::test_json::impl::document[key].is_null();
+    const auto &document = compiled_json::test_json::impl::document;
+    return document.contains(key) && !document[key].is_null() && document.find_entry(key) != nullptr;
   }());
+}
+
+TEST_CASE("Key literals preserve embedded NULs")
+{
+  constexpr const auto &document = compiled_json::edge_values::impl::document;
+  STATIC_REQUIRE(document.at("a\0b") == 2);
+  STATIC_REQUIRE(document["a\0"] == 3);
+  STATIC_REQUIRE(document.find_entry("a\0b")->second == 2);
+  STATIC_REQUIRE(document.contains("a\0b"));
+  STATIC_REQUIRE(!document.contains("a\0missing"));
+  STATIC_REQUIRE(document.find_entry("a\0missing") == nullptr);
+}
+
+TEST_CASE("Large sorted ordinary objects return the first matching pair")
+{
+  static constexpr auto entries = [] {
+    std::array<json2cpp::value_pair_t, 256> result{};
+    for (std::size_t i = 0; i < result.size(); ++i) {
+      const auto number = i / 2u;
+      const char key[] = { static_cast<char>('0' + number / 100u),
+        static_cast<char>('0' + number / 10u % 10u),
+        static_cast<char>('0' + number % 10u) };
+      result[i] = { json2cpp::json{ std::string_view{ key, std::size(key) } }, json2cpp::json{ i } };
+    }
+    return result;
+  }();
+  constexpr json2cpp::json object{ json2cpp::object_t{ entries } };
+  STATIC_REQUIRE(object.is_sorted_obj());
+  STATIC_REQUIRE(object.at("000") == 0u);
+  STATIC_REQUIRE(object["127"] == 254u);
+  STATIC_REQUIRE(object.find_entry("064") == &entries[128]);
+  STATIC_REQUIRE(object.find_entry("064", json2cpp::json::calc_hash("064")) == &entries[128]);
+  STATIC_REQUIRE(!object.contains("128"));
+  STATIC_REQUIRE(!object.contains(""));
 }
 
 TEST_CASE("Generator keeps edge values exact")
@@ -131,4 +166,13 @@ TEST_CASE("Generator keeps edge values exact")
   STATIC_REQUIRE(document["int_min"].get<std::int64_t>() == std::numeric_limits<std::int64_t>::min());
   STATIC_REQUIRE(document["uint_max"].get<std::uint64_t>() == std::numeric_limits<std::uint64_t>::max());
   STATIC_REQUIRE(document["trigraphs"] == "?\?=?\?/");
+  constexpr const auto &zeros = document["signed_zeros"];
+  constexpr auto negative_zero = std::uint64_t{ 1 } << 63u;
+  STATIC_REQUIRE(std::bit_cast<std::uint64_t>(zeros[0][0].get<double>()) == 0u);
+  STATIC_REQUIRE(std::bit_cast<std::uint64_t>(zeros[1][0].get<double>()) == negative_zero);
+  STATIC_REQUIRE(std::bit_cast<std::uint64_t>(zeros[3][0].get<double>()) == negative_zero);
+  STATIC_REQUIRE(std::bit_cast<std::uint64_t>(zeros[4]["x"].get<double>()) == 0u);
+  STATIC_REQUIRE(std::bit_cast<std::uint64_t>(zeros[5]["x"].get<double>()) == negative_zero);
+  STATIC_REQUIRE(&zeros[0][0] == &zeros[2][0]);
+  STATIC_REQUIRE(&zeros[1][0] == &zeros[3][0]);
 }

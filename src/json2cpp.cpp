@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -246,7 +247,7 @@ struct JsonHasher
       hash_combine(seed, std::hash<std::uint64_t>{}(j.get<std::uint64_t>()));
       break;
     case nlohmann::ordered_json::value_t::number_float:
-      hash_combine(seed, std::hash<double>{}(j.get<double>()));
+      hash_combine(seed, std::hash<std::uint64_t>{}(std::bit_cast<std::uint64_t>(j.get<double>())));
       break;
     default:
       break;
@@ -257,7 +258,21 @@ struct JsonHasher
 
 struct JsonEqual
 {
-  bool operator()(const nlohmann::ordered_json &a, const nlohmann::ordered_json &b) const { return a == b; }
+  bool operator()(const nlohmann::ordered_json &a, const nlohmann::ordered_json &b) const
+  {
+    // Reuse only subtrees that emit the same types, order, and floating-point bits.
+    if (a.type() != b.type() || a.size() != b.size()) return false;
+    if (a.is_number_float())
+      return std::bit_cast<std::uint64_t>(a.get<double>()) == std::bit_cast<std::uint64_t>(b.get<double>());
+    if (a.is_array()) return std::ranges::equal(a, b, *this);
+    if (a.is_object()) {
+      auto right = b.begin();
+      for (auto left = a.begin(); left != a.end(); ++left, ++right)
+        if (left.key() != right.key() || !(*this)(left.value(), right.value())) return false;
+      return true;
+    }
+    return a == b;
+  }
 };
 
 struct StringDuplicateTracker
@@ -280,7 +295,7 @@ struct StringDuplicateTracker
       if (str.size() > 8u) {
         const auto id = counter++;
         definitions.emplace_back(
-          std::format("alignas(1) constexpr basicType l{}[] = RAW_LIT(\"{}\");", id, escape_string(str)));
+          std::format("alignas(basicType) constexpr basicType l{}[] = RAW_LIT(\"{}\");", id, escape_string(str)));
         repr = std::format("J2V(l{})", id);
         if (count == 1) string_to_var[str] = repr;
       }
