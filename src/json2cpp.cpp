@@ -359,14 +359,6 @@ struct DuplicateTracker
     }
   }
 
-  bool is_shared(const nlohmann::ordered_json &value) const { return value_to_var.count(value) > 0; }
-
-  bool is_processed(const std::string &var_name) const { return processed_vars.count(var_name) > 0; }
-
-  void mark_as_processed(const std::string &var_name) { processed_vars.insert(var_name); }
-
-  std::string get_var_name(const nlohmann::ordered_json &value) const { return value_to_var.at(value); }
-
   std::size_t get_reused_count() const { return value_to_var.size(); }
 
   int32_t get_total_references_saved() const
@@ -481,25 +473,17 @@ std::string compile_dispatch(const nlohmann::ordered_json &value,
   DuplicateTracker &object_tracker,
   DuplicateTracker &array_tracker)
 {
-  if (value.is_object() && object_tracker.is_shared(value)) {
-    auto var_name = object_tracker.get_var_name(value);
-    if (object_tracker.is_processed(var_name)) { return var_name; }
-    object_tracker.mark_as_processed(var_name);
-    auto body = generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
-    lines.emplace_back(std::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
-    return var_name;
-  }
-
-  if (value.is_array() && array_tracker.is_shared(value)) {
-    auto var_name = array_tracker.get_var_name(value);
-    if (array_tracker.is_processed(var_name)) { return var_name; }
-    array_tracker.mark_as_processed(var_name);
-    auto body = generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
-    lines.emplace_back(std::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
-    return var_name;
-  }
-
   if (value.is_object() || value.is_array()) {
+    auto &tracker = value.is_object() ? object_tracker : array_tracker;
+    const auto shared = tracker.value_to_var.find(value);
+    if (shared != tracker.value_to_var.end()) {
+      const auto &var_name = shared->second;
+      if (tracker.processed_vars.insert(var_name).second) {
+        auto body = generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
+        lines.emplace_back(std::format("constexpr auto {} = json{{{{ {} }}}};", var_name, body));
+      }
+      return var_name;
+    }
     return generate_node_body(value, obj_count, lines, string_tracker, object_tracker, array_tracker);
   } else if (value.is_number_float()) {
     return std::format("double{{{:#}}}", value.get<double>());
