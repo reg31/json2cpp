@@ -188,6 +188,12 @@ namespace detail {
     return { str, end != nullptr ? static_cast<size_t>(end - str) : N };
   }
 
+  template<typename CharType, size_t N>
+  constexpr std::basic_string_view<CharType> literal_view(const CharType (&str)[N]) noexcept
+  {
+    return { str, N - (str[N - 1u] == CharType{} ? 1u : 0u) };
+  }
+
   template<std::integral T> [[nodiscard]] constexpr bool float_fits(double v) noexcept
   {
     constexpr auto bits = static_cast<unsigned>(sizeof(T) * 8u);
@@ -218,7 +224,7 @@ namespace detail {
 
     template<size_t N>
     consteval CompileTimeKey(const CharType (&str)[N]) noexcept
-      : data(str), size(static_cast<uint32_t>(array_view(str).size())), hash(hash_key(array_view(str)))
+      : data(str), size(static_cast<uint32_t>(literal_view(str).size())), hash(hash_key(value()))
     {}
 
     [[nodiscard]] constexpr std::basic_string_view<CharType> value() const noexcept { return { data, size }; }
@@ -333,12 +339,35 @@ private:
     }
   }
 
+  JSON2CPP_FIND constexpr size_t find_sorted(const CharType *data, size_t size) const noexcept
+  {
+    const std::basic_string_view<CharType> key{ data, size };
+    const auto *entries = data_storage_.object_value;
+    auto *first = entries;
+    auto count = length_;
+    auto result = npos;
+    while (count != 0u) {
+      const auto step = count / 2u;
+      const auto *middle = first + step;
+      const auto order = middle->first.getString().compare(key);
+      if (order < 0) {
+        first = middle + 1u;
+        count -= step + 1u;
+      } else {
+        if (order == 0) result = static_cast<size_t>(middle - entries);
+        count = step;
+      }
+    }
+    return result;
+  }
+
   [[nodiscard]] constexpr size_t find_index_impl(const CharType *data, size_t size, uint32_t hash) const noexcept
   {
     const std::basic_string_view<CharType> key{ data, size };
     const auto metadata = key_metadata(hash);
     switch (object_kind()) {
     case object_tag: {
+      if (length_ >= 256u && is_sorted_obj()) return find_sorted(data, size);
       const auto *entries = data_storage_.object_value;
       for (size_t i = 0; i < length_; ++i)
         if (key_matches(entries[i].first, key, metadata)) return i;
@@ -505,6 +534,12 @@ public:
 
   template<size_t N>
   [[nodiscard]] constexpr const basic_value_pair_t<CharType> *find_entry(const CharType (&key)[N]) const noexcept
+  {
+    return find_entry(detail::literal_view(key));
+  }
+
+  template<size_t N>
+  [[nodiscard]] constexpr const basic_value_pair_t<CharType> *find_entry(CharType (&key)[N]) const noexcept
   {
     return find_entry(detail::array_view(key));
   }
