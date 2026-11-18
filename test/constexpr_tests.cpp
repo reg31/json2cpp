@@ -142,7 +142,8 @@ TEST_CASE("Large sorted ordinary objects return the first matching pair")
     for (std::size_t i = 0; i < result.size(); ++i) {
       const auto number = i / 2u;
       const char key[] = { static_cast<char>('0' + number / 100u),
-        static_cast<char>('0' + number / 10u % 10u), static_cast<char>('0' + number % 10u) };
+        static_cast<char>('0' + number / 10u % 10u),
+        static_cast<char>('0' + number % 10u) };
       result[i] = { json2cpp::json{ std::string_view{ key, std::size(key) } }, json2cpp::json{ i } };
     }
     return result;
